@@ -115,7 +115,7 @@ fi
 ################################################################################
 
 # Set Vim as the default editor.
-export EDITOR="vim"
+export EDITOR="code"
 # Use Neovim instead of classic Vim (if available)
 if _has nvim; then
   alias vim="nvim"
@@ -202,8 +202,8 @@ fi
 if _has fzf; then
   # Source fzf key bindings and auto-completion.
   # NOTE: This uses the ${fzf_path} variable from earlier. This is intentional.
-  source "${fzf_path}/shell/key-bindings.zsh"
-  source "${fzf_path}/shell/completion.zsh"
+  # source "${fzf_path}/shell/key-bindings.zsh"
+  # source "${fzf_path}/shell/completion.zsh"
 fi
 
 if _has zoxide; then
