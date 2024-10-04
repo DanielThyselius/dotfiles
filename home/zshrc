@@ -184,6 +184,9 @@ source $ZSH/oh-my-zsh.sh
 # Set key bindings.
 bindkey -v # vi mode for shell
 bindkey -e # enable C-x-e for shell editor
+# Set tab completion
+bindkey "^I" complete-word
+
 # Key bindings for history search.
 bindkey '\e[3~' delete-char
 bindkey '^R' history-incremental-search-backward
