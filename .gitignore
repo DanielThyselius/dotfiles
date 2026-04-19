@@ -5,3 +5,6 @@
 *.swp
 *.swo
 *~
+
+# Omarchy active theme (changes on every theme swap)
+system-ui/.config/omarchy/current/
