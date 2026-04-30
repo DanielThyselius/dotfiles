@@ -8,3 +8,6 @@
 
 # Omarchy active theme (changes on every theme swap)
 system-ui/.config/omarchy/current/
+
+# Personal identity strings (kept local-only, copy-paste when setting up a new machine)
+tools/.XCompose
