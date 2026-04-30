@@ -14,3 +14,6 @@ source ~/.local/share/omarchy/default/bash/rc
 
 # Bun global bin (archon CLI)
 export PATH="$HOME/.cache/.bun/bin:$PATH"
+
+# Knowledge Plugin
+export KNOWLEDGE_BASE_PATH="/home/daniel/Source/ramudden/shared-knowledge"
