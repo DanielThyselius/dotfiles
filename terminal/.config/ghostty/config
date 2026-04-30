@@ -33,5 +33,20 @@ keybind = super+control+shift+alt+arrow_right=resize_split:right,100
 # Slowdown mouse scrolling
 mouse-scroll-multiplier = 0.95
 
+# Free up ctrl+alt (+shift) keys so tmux pane resize/split via hjkl and arrows
+# pass through cleanly
+keybind = ctrl+alt+h=unbind
+keybind = ctrl+alt+j=unbind
+keybind = ctrl+alt+k=unbind
+keybind = ctrl+alt+l=unbind
+keybind = ctrl+alt+shift+h=unbind
+keybind = ctrl+alt+shift+j=unbind
+keybind = ctrl+alt+shift+k=unbind
+keybind = ctrl+alt+shift+l=unbind
+keybind = ctrl+alt+up=unbind
+keybind = ctrl+alt+down=unbind
+keybind = ctrl+alt+left=unbind
+keybind = ctrl+alt+right=unbind
+
 # Fix general slowness on hyprland (https://github.com/ghostty-org/ghostty/discussions/3224)
 async-backend = epoll
