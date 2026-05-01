@@ -17,3 +17,5 @@ export PATH="$HOME/.cache/.bun/bin:$PATH"
 
 # Knowledge Plugin
 export KNOWLEDGE_BASE_PATH="/home/daniel/Source/ramudden/shared-knowledge"
+
+alias gt='git-town'
