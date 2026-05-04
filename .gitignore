@@ -11,3 +11,6 @@ system-ui/.config/omarchy/current/
 
 # Personal identity strings (kept local-only, copy-paste when setting up a new machine)
 tools/.XCompose
+
+# Tmux plugins (third-party repos cloned per-machine; reinstall manually)
+terminal/.config/tmux/plugins/
