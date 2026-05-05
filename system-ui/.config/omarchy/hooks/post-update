@@ -1,0 +1,6 @@
+#!/bin/bash
+
+# Rebuild Hyprland plugins against the (possibly bumped) Hyprland headers.
+# Without this, plugins silently disable themselves after omarchy-update bumps Hyprland.
+hyprpm update -f
+notify-send "Plugins" "hyprpm update complete"

@@ -26,6 +26,12 @@
   min-width: 9px;
 }
 
+#workspaces button + button {
+  border-left: 1px solid alpha(@foreground, 0.18);
+  margin-left: 4px;
+  padding-left: 10px;
+}
+
 #workspaces button.empty {
   opacity: 0.5;
 }

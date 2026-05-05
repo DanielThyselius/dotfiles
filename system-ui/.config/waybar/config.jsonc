@@ -16,7 +16,7 @@
   ],
   "hyprland/workspaces": {
     "on-click": "activate",
-    "format": "{icon}",
+    "format": "{icon} {windows}",
     "format-icons": {
       "default": "",
       "1": "1",
@@ -30,6 +30,32 @@
       "9": "9",
       "10": "0",
       "active": "󱓻"
+    },
+    "format-window-separator": " ",
+    "window-rewrite-default": "󰘔",
+    "window-rewrite": {
+      "class<.*[Ff]irefox.*>": "󰏚",
+      "class<.*[Zz]en.*>": "󰈹",
+      "class<.*[Bb]rave.*>": "󰖟",
+      "class<.*google-chrome.*>": "󰊯",
+      "class<.*[Cc]hromium.*>": "󰊯",
+      "class<.*ghostty.*>": "󰞷",
+      "class<.*[Aa]lacritty.*>": "󰞷",
+      "class<.*kitty.*>": "󰞷",
+      "class<.*[Cc]ode.*>": "󰨞",
+      "class<.*[Cc]ursor.*>": "󰨞",
+      "class<.*[Zz]ed.*>": "󰨞",
+      "class<.*[Ss]lack.*>": "󰒱",
+      "class<.*[Dd]iscord.*>": "󰙯",
+      "class<.*[Ss]potify.*>": "󰓇",
+      "class<.*thunderbird.*>": "󱍩",
+      "class<.*[Oo]bsidian.*>": "󱞁",
+      "class<.*1[Pp]assword.*>": "󰢁",
+      "class<.*[Bb]itwarden.*>": "󱓍",
+      "class<.*[Dd][Bb]eaver.*>": "󰆼",
+      "class<.*teams.*>": "󱨇",
+      "class<.*[Nn]autilus.*>": "󰉋",
+      "class<.*[Tt]hunar.*>": "󰉋"
     },
     "persistent-workspaces": {
       "1": [],
