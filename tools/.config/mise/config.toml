@@ -1,4 +1,7 @@
 [tools]
 dotnet = "9"
+elixir = "latest"
+erlang = "latest"
+java = "latest"
 node = "25.8.0"
 python = "latest"
