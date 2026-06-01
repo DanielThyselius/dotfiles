@@ -1,0 +1,37 @@
+#!/bin/bash
+
+# Re-render dependent configs from omarchy theme colors.
+#
+# Currently handles: niri (~/.config/niri/config.kdl from .template).
+# omarchy passes the snake-cased theme name as $1; we don't need it because
+# ~/.config/omarchy/current/theme/ is already the symlink to the new theme.
+#
+# Safe to run manually:   ~/.config/omarchy/hooks/theme-set
+
+set -euo pipefail
+
+COLORS="$HOME/.config/omarchy/current/theme/colors.toml"
+
+# ─── niri ────────────────────────────────────────────────────────────────
+
+NIRI_TPL="$HOME/.config/niri/config.kdl.template"
+NIRI_OUT="$HOME/.config/niri/config.kdl"
+
+if [[ -f "$NIRI_TPL" && -f "$COLORS" ]]; then
+    tmp=$(mktemp)
+    cp "$NIRI_TPL" "$tmp"
+
+    # Pull "key = \"#hex\"" pairs from colors.toml.
+    while IFS='=' read -r key val; do
+        key=$(echo "$key" | tr -d '[:space:]')
+        # Strip surrounding whitespace and quotes from value.
+        val=$(echo "$val" | sed -E 's/^[[:space:]]*"([^"]*)".*/\1/')
+        [[ -n "$key" && -n "$val" ]] || continue
+        # Escape | for sed.
+        sed -i "s|@@${key}@@|${val}|g" "$tmp"
+    done < <(grep -E '^[a-z_0-9]+ *= *"#' "$COLORS")
+
+    mv "$tmp" "$NIRI_OUT"
+    # niri auto-reloads when its config changes; this is a no-op when niri
+    # isn't running.
+fi
