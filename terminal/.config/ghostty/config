@@ -28,6 +28,12 @@ keybind = control+insert=copy_to_clipboard
 
 # Ctrl+Backspace = same bytes as Alt+Backspace (delete previous word)
 keybind = ctrl+backspace=text:\x1b\x7f
+
+# Force kitty CSI-u for Alt+Shift+4 so tmux can distinguish it from Alt+4.
+# Without this, Ghostty drops Shift on the Swedish ¤ (sends legacy ESC+4)
+# because tmux only requests modifyOtherKeys mode 1. 164 = U+00A4 (¤),
+# modifier mask 3 = shift(1)+alt(2). See tmux config user-keys[0].
+keybind = alt+shift+4=csi:164;3u
 keybind = super+control+shift+alt+arrow_down=resize_split:down,100
 keybind = super+control+shift+alt+arrow_up=resize_split:up,100
 keybind = super+control+shift+alt+arrow_left=resize_split:left,100
