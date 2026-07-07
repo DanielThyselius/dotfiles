@@ -1,0 +1,23 @@
+{
+  "shortcuts": {
+    "split_down": "<Alt>m",
+    "split_right": "<Alt>n",
+    "close_focused_pane": "<Alt>w",
+    "focus_left": "<Alt>Left",
+    "focus_down": "<Alt>Down",
+    "focus_up": "<Alt>Up",
+    "focus_right": "<Alt>Right",
+    "new_workspace": "<Alt>t",
+    "next_workspace": "<Alt>Tab",
+    "prev_workspace": "<Alt><Shift>Tab",
+    "activate_workspace_1": "<Alt>1",
+    "activate_workspace_2": "<Alt>2",
+    "activate_workspace_3": "<Alt>3",
+    "activate_workspace_4": "<Alt>4",
+    "activate_workspace_5": "<Alt>5",
+    "activate_workspace_6": "<Alt>6",
+    "activate_workspace_7": "<Alt>7",
+    "activate_workspace_8": "<Alt>8",
+    "activate_last_workspace": "<Alt>9"
+  }
+}
