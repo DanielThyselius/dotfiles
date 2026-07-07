@@ -1,0 +1,15 @@
+[Unit]
+Description=tmux server (survives graphical session teardown)
+Documentation=man:tmux(1)
+
+[Service]
+Type=forking
+# Config sets exit-empty off, so the server stays alive with no sessions;
+# tmux-continuum auto-restores saved sessions on server start.
+ExecStart=/usr/bin/tmux start-server
+ExecStop=/usr/bin/tmux kill-server
+KillMode=process
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
