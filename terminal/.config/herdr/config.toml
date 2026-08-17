@@ -1,0 +1,149 @@
+# herdr configuration
+# Stowed from ~/dotfiles/terminal/.config/herdr/config.toml
+#
+#   herdr config check          validate this file
+#   herdr server reload-config  apply without restarting (or prefix+shift+r)
+#   herdr config reset-keys     back up and drop all custom keybindings
+#
+# Mirrors ~/.config/tmux/tmux.conf where herdr allows it. Two structural
+# differences worth knowing before reading the [keys] block:
+#
+#   1. herdr accepts ONE binding per action. tmux.conf binds most motions
+#      twice (arrows AND hjkl, direct AND prefix). Arrows win here.
+#   2. herdr has no second prefix. tmux's M-Space alternate prefix is gone.
+#
+# Actions with no tmux counterpart keep their herdr defaults and are listed
+# at the bottom for reference.
+
+onboarding = false
+
+[theme]
+# "terminal" inherits the host palette, matching tmux's `status-style bg=default`.
+name = "terminal"
+
+[theme.custom]
+panel_bg = "reset"
+
+[terminal]
+# tmux: split-window -c "#{pane_current_path}"
+new_cwd = "follow"
+
+
+# ─────────────────────────── keys ───────────────────────────
+[keys]
+prefix = "alt+space"                  # tmux: set -g prefix2 M-Space
+                                      # (herdr has no second prefix; C-Space is gone)
+
+# --- direct, no prefix: mirrors the M-* layer (which mirrors Hyprland) ---
+focus_pane_left     = "alt+left"      # tmux: M-Left  / M-h
+focus_pane_down     = "alt+down"      # tmux: M-Down  / M-j
+focus_pane_up       = "alt+up"        # tmux: M-Up    / M-k
+focus_pane_right    = "alt+right"     # tmux: M-Right / M-l
+swap_pane_left      = "alt+shift+left"   # tmux: M-S-Left  swap-pane
+swap_pane_down      = "alt+shift+down"   # tmux: M-S-Down  swap-pane
+swap_pane_up        = "alt+shift+up"     # tmux: M-S-Up    swap-pane
+swap_pane_right     = "alt+shift+right"  # tmux: M-S-Right swap-pane
+new_tab             = "alt+t"         # tmux: M-t new-window
+close_pane          = "alt+w"         # tmux: M-w / M-Escape kill-pane
+rename_tab          = "alt+r"         # tmux: M-r rename-window
+next_tab            = "alt+tab"       # tmux: M-Tab   / M-a
+previous_tab        = "alt+shift+tab" # tmux: M-S-Tab / M-A
+switch_tab          = "alt+1..9"      # tmux: M-1..M-9 select-window
+# Nearest thing to tmux `bind -n M-q last-window`. herdr has no last_tab;
+# last_pane is documented as "global back-and-forth", so it should cross tabs.
+last_pane           = "alt+q"         # tmux: M-q last-window (see caveat)
+
+# --- prefix layer ---
+reload_config       = "prefix+q"        # tmux: bind q source-file
+detach              = "prefix+d"        # tmux default prefix+d
+split_vertical      = "prefix+v"        # tmux: bind v split-window -h
+split_horizontal    = "prefix+h"        # tmux: bind h split-window -v
+close_tab           = "prefix+k"        # tmux: bind k kill-window
+copy_mode           = "prefix+c"        # tmux: bind c copy-mode
+                                        # (edit_scrollback stays at its prefix+e default)
+new_workspace       = "prefix+shift+c"  # tmux: bind C new-session
+close_workspace     = "prefix+shift+k"  # tmux: bind K kill-session
+rename_workspace    = "prefix+shift+r"  # tmux: bind R rename-session
+
+# Space navigation is direct rather than prefixed — the sidebar stacks spaces
+# vertically, so up/down is the spatial match. tmux wanted this too
+# (`#bind -n C-M-Up switch-client -p`) but the chord was taken by resize-pane;
+# herdr puts resize behind a mode, freeing it. Costs prefix+shift+p/n.
+previous_workspace  = "ctrl+alt+up"      # tmux: bind P switch-client -p
+next_workspace      = "ctrl+alt+down"    # tmux: bind N switch-client -n
+
+# Mirrors the hierarchy: alt+N = tab N, ctrl+alt+N = space N
+# (and Hyprland's SUPER+N = workspace N).
+switch_workspace    = "ctrl+alt+1..9"
+
+# No tmux counterpart — explicitly unbound so it can't collide with
+# previous_workspace above (herdr's default for this is prefix+shift+p).
+rename_pane         = ""
+
+# Kept at herdr defaults (nothing in tmux.conf maps to these):
+#   help prefix+?          settings prefix+s       toggle_sidebar prefix+b
+#   workspace_picker prefix+w   goto prefix+g      zoom prefix+z
+#   resize_mode prefix+r   new_worktree prefix+shift+g
+#   cycle_pane_next prefix+tab  cycle_pane_previous prefix+shift+tab
+#   open_notification_target prefix+o
+
+
+# --- custom commands ---
+# herdr binds one key per action, so split_vertical/split_horizontal above are
+# already spent on prefix+v / prefix+h. These recover the direct M-n / M-m layer
+# by calling the socket API instead. Omitting --pane targets the UI-focused
+# pane, which is what a keypress means. Verified: --direction right splits
+# side-by-side. New panes inherit cwd via [terminal] new_cwd = "follow",
+# matching tmux's -c "#{pane_current_path}".
+#
+# --focus is required: the CLI does NOT focus the new pane by default, unlike
+# the native split actions. tmux's split-window focuses the new pane, so this
+# keeps parity.
+
+[[keys.command]]
+key = "alt+n"
+type = "shell"
+command = "herdr pane split --direction right --focus"
+description = "Split right (tmux M-n)"
+
+[[keys.command]]
+key = "alt+m"
+type = "shell"
+command = "herdr pane split --direction down --focus"
+description = "Split down (tmux M-m)"
+
+# Tab-through-spaces, alongside the ctrl+alt+arrow bindings above.
+# Ctrl+Alt+Tab verified free: `hyprctl binds` shows every live TAB binding on a
+# SUPER modmask (64/65/68/69/72/73), none on plain CTRL+ALT (12). Omarchy's
+# tiling-v2.conf declares CTRL ALT,TAB -> focusmonitor but it is not live.
+# Recheck if a second monitor comes back. Plain ctrl+tab is NOT usable —
+# Ghostty binds it to next_tab and would swallow it before herdr sees it.
+# Wrapped in sh -c so $HOME expands regardless of how herdr spawns the command.
+
+[[keys.command]]
+key = "ctrl+alt+tab"
+type = "shell"
+command = 'sh -c "$HOME/.config/herdr/herdr-cycle-space.sh next"'
+description = "Next space (tmux C-M-Tab)"
+
+[[keys.command]]
+key = "ctrl+alt+shift+tab"
+type = "shell"
+command = 'sh -c "$HOME/.config/herdr/herdr-cycle-space.sh prev"'
+description = "Previous space (tmux C-M-S-Tab)"
+
+
+# ─────────────────────────── ui ───────────────────────────
+[ui]
+accent = "blue"
+
+# tmux: WheelUpPane bound to -N 1 for an analog touchpad feel (default is 3).
+mouse_scroll_lines = 1
+
+# tmux: pane-border-format shows "#P #{pane_current_command}".
+show_agent_labels_on_pane_borders = true
+
+[ui.toast]
+# Route background agent state changes to mako instead of in-app toasts.
+# This is the notify-send-on-blocked behaviour we were going to build by hand.
+delivery = "system"
