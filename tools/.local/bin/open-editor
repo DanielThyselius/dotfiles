@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Dispatcher for clicked/picked file paths (OSC 8 links, file managers, tmux-thumbs).
+#   *.md, *.markdown, *.mkd -> Typora
+#   everything else          -> nvim in a new Ghostty window
+# Accepts plain paths, file:// URLs, and grep/compiler-style "path:LINE[:COL]".
+#
+# Exists because nvim.desktop is Terminal=true, and xdg-open ignores that flag
+# under Hyprland -- it execs `nvim <file>` with no terminal, so clicks did nothing.
+set -euo pipefail
+
+f=${1:-}
+[ -n "$f" ] || exit 1
+
+# xdg-open passes a decoded path via %f, but accept file:// URLs too.
+if [ "${f#file://}" != "$f" ]; then
+    f=${f#file://}
+    case $f in *%*) f=$(printf '%b' "${f//%/\\x}") ;; esac
+fi
+
+# Peel a trailing :LINE[:COL] only if it makes the path resolve.
+line=
+if [ ! -e "$f" ]; then
+    stripped=${f%%:*}
+    rest=${f#"$stripped"}
+    if [ -n "$rest" ] && [ -e "$stripped" ]; then
+        rest=${rest#:}
+        line=${rest%%:*}
+        case $line in ''|*[!0-9]*) line= ;; esac
+        f=$stripped
+    fi
+fi
+
+case ${f,,} in
+    *.md|*.markdown|*.mkd) exec typora "$f" ;;
+esac
+
+if [ -n "$line" ]; then
+    exec ghostty -e nvim "+$line" "$f"
+else
+    exec ghostty -e nvim "$f"
+fi

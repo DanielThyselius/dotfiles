@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# tmux-thumbs upcase action: open the picked match.
+# URLs go to xdg-open; paths are resolved against the active pane's cwd
+# (thumbs hands back exactly what was on screen, often a relative path).
+set -euo pipefail
+
+m=${1:-}
+[ -n "$m" ] || exit 0
+
+case $m in
+    *://*) exec xdg-open "$m" ;;
+esac
+
+if [ ! -e "$m" ] && [ ! -e "${m%%:*}" ]; then
+    cwd=$(tmux display-message -p '#{pane_current_path}' 2>/dev/null || true)
+    if [ -n "$cwd" ] && { [ -e "$cwd/$m" ] || [ -e "$cwd/${m%%:*}" ]; }; then
+        m="$cwd/$m"
+    fi
+fi
+
+exec "$HOME/.local/bin/open-editor" "$m"

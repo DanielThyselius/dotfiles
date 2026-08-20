@@ -38,6 +38,14 @@ systemctl --user enable --now tmux.service
   logind crashes; sessions auto-save every 10 min (tmux-continuum) and restore
   on server start. Attach with `tmux attach`, never bare `tmux` (that creates
   an extra session, or worse, a session-bound server if the service is down).
+- Clicking a file path opens it via `tools/.local/bin/open-editor`: `.md` goes to
+  Typora, everything else to `nvim` in a new Ghostty window. It dispatches on the
+  file extension, not the mime type, because `xdg-mime query filetype` falls back
+  to `file --mime-type` here and reports `text/plain` for markdown. It is wired in
+  as the default handler for text types in `tools/.config/mimeapps.list`, and as
+  the tmux-thumbs open action via `tools/.local/bin/tmux-open-hint`.
+- Ghostty cannot linkify bare paths (its `link` regex option is unimplemented as
+  of 1.3.1), so clickable paths rely on OSC 8 hyperlinks from the emitting program.
 - After changing anything in `system/etc/`, re-run `./system/install.sh`.
   logind config applies at next boot — do **not** restart systemd-logind from
   inside a session (it kills Hyprland and everything in it).

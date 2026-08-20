@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Text file (Typora / nvim)
+Comment=Markdown opens in Typora, everything else in nvim in a new Ghostty window
+Exec=/home/daniel/.local/bin/open-editor %f
+Terminal=false
+NoDisplay=true
+MimeType=text/plain;text/markdown;text/x-markdown;text/english;text/x-makefile;text/x-c++hdr;text/x-c++src;text/x-chdr;text/x-csrc;text/x-java;text/x-moc;text/x-pascal;text/x-tcl;text/x-tex;text/x-c;text/x-c++;application/x-shellscript;application/xml;text/xml;application/json;text/x-python;text/rust;text/x-go;text/x-lua;text/css;text/x-sql;application/toml;application/x-yaml;text/yaml;
