@@ -133,6 +133,24 @@ command = 'sh -c "$HOME/.config/herdr/herdr-cycle-space.sh prev"'
 description = "Previous space (tmux C-M-S-Tab)"
 
 
+# Flipping a two-pane tab between side-by-side and stacked. tmux does it with
+# `select-layout even-horizontal` / `even-vertical`; herdr has no equivalent
+# action, and the two API calls that look like they should work do not:
+# `pane move` no-ops inside its own tab ({"changed": false, "same_tab"}), and
+# layout.apply REBUILDS the tab with fresh panes, killing everything running
+# in it. The script does an out-and-back move instead — see its header.
+#
+# prefix+t for "toggle", free in this config. Unverified against herdr's own
+# defaults: there is no keymap introspection API and `config check` only
+# validates syntax, so if herdr ships a default on prefix+t this shadows it
+# (user bindings win). Nothing was noticeably lost when this was added.
+
+[[keys.command]]
+key = "prefix+t"
+type = "shell"
+command = 'sh -c "$HOME/.config/herdr/herdr-flip-split.sh"'
+description = "Flip split direction (side-by-side <-> stacked)"
+
 # ─────────────────────────── ui ───────────────────────────
 [ui]
 accent = "blue"
