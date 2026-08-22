@@ -24,3 +24,4 @@ terminal/.config/herdr/plugins/config/
 # Generated per-machine autostart artifacts (installer-written / desktop cache)
 tools/.config/autostart/mimeinfo.cache
 tools/.config/autostart/jetbrains-toolbox.desktop
+*.bak.*
