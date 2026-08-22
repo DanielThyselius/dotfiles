@@ -63,3 +63,5 @@ keybind = ctrl+alt+right=unbind
 
 # Fix general slowness on hyprland (https://github.com/ghostty-org/ghostty/discussions/3224)
 async-backend = epoll
+keybind = ctrl+shift+x=copy_url_to_clipboard
+keybind = ctrl+shift+y=copy_url_to_clipboard
