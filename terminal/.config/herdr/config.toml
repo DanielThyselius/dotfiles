@@ -24,6 +24,27 @@ name = "terminal"
 [theme.custom]
 panel_bg = "reset"
 
+# Inactive pane borders. Under theme = "terminal", overlay0 resolves to ANSI 7
+# (the theme's white), so an unfocused pane is outlined in near-foreground white
+# while the focused one gets `accent` — far too loud for the thing that is NOT
+# in focus. "darkgray" is ANSI 8, which is exactly what the sidebar's own rules
+# use (the spaces/agents divider and the sidebar/pane edge), so the inactive
+# border now reads as the same piece of chrome as those lines.
+#
+# There is no dedicated border token: overlay0 is herdr's generic "muted" color,
+# so this ALSO dims the sidebar's secondary text — the "agents"/"grouped"
+# headers, the $idx digits, the dim workspace/tab tokens, and the agent
+# session-title row all drop from ~8:1 to ~2:1 contrast. That is the trade this
+# line makes; measured, not guessed. If the session titles get too faint,
+# give those tokens an explicit `fg = "#rrggbb"` in [ui.sidebar.*] below —
+# which costs theme-following for those rows, since fg only accepts hex.
+#
+# Named colors here are palette references, not CSS: "darkgray" follows whatever
+# omarchy's current theme sets palette 8 to, so this survives theme switches.
+# Unknown names are NOT an error — `config check` still says ok and the color
+# silently falls back to teal, so verify visually after editing.
+overlay0 = "darkgray"
+
 [terminal]
 # tmux: split-window -c "#{pane_current_path}"
 new_cwd = "follow"
