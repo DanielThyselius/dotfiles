@@ -45,7 +45,6 @@ swap_pane_up        = "alt+shift+up"     # tmux: M-S-Up    swap-pane
 swap_pane_right     = "alt+shift+right"  # tmux: M-S-Right swap-pane
 new_tab             = "alt+t"         # tmux: M-t new-window
 close_pane          = "alt+w"         # tmux: M-w / M-Escape kill-pane
-rename_tab          = "alt+r"         # tmux: M-r rename-window
 next_tab            = "alt+tab"       # tmux: M-Tab   / M-a
 previous_tab        = "alt+shift+tab" # tmux: M-S-Tab / M-A
 switch_tab          = "alt+1..9"      # tmux: M-1..M-9 select-window
@@ -63,7 +62,29 @@ copy_mode           = "prefix+c"        # tmux: bind c copy-mode
                                         # (edit_scrollback stays at its prefix+e default)
 new_workspace       = "prefix+shift+c"  # tmux: bind C new-session
 close_workspace     = "prefix+shift+k"  # tmux: bind K kill-session
-rename_workspace    = "prefix+shift+r"  # tmux: bind R rename-session
+# All three renames live on the prefix layer: they are infrequent, deliberate,
+# and open a text prompt, so the extra chord costs nothing while keeping the
+# direct alt layer for motion. The modifier encodes the level, mirroring the
+# close family above (close_tab prefix+k / close_workspace prefix+shift+k):
+#
+#   prefix+r        rename tab     tmux: M-r rename-window
+#   prefix+shift+r  rename space   tmux: bind R rename-session
+#   prefix+ctrl+r   rename pane    no tmux counterpart
+#
+# prefix+ctrl+X is not in herdr's documented key syntax but IS accepted.
+# Verified rather than assumed: a deliberately bogus chord makes config check
+# report "invalid keybinding ...; disabling binding" and reload return status
+# "partial", so the plain "config: ok" here is a real pass, not silence.
+#
+# rename_pane matters mostly for plain shell panes — Claude panes already
+# self-label from the terminal title via show_agent_labels_on_pane_borders and
+# rows_by_agent. herdr's own default for it, prefix+shift+p, is deliberately
+# left free: the note that used to sit here claimed space navigation had taken
+# it, but previous_workspace/next_workspace landed on ctrl+alt+up/down instead,
+# so that collision never actually happened.
+rename_tab          = "prefix+r"
+rename_workspace    = "prefix+shift+r"
+rename_pane         = "prefix+ctrl+r"
 
 # Space navigation is direct rather than prefixed — the sidebar stacks spaces
 # vertically, so up/down is the spatial match. tmux wanted this too
@@ -76,14 +97,53 @@ next_workspace      = "ctrl+alt+down"    # tmux: bind N switch-client -n
 # (and Hyprland's SUPER+N = workspace N).
 switch_workspace    = "ctrl+alt+1..9"
 
-# No tmux counterpart — explicitly unbound so it can't collide with
-# previous_workspace above (herdr's default for this is prefix+shift+p).
-rename_pane         = ""
+# Agent-panel navigation. No tmux counterpart — tmux has no concept of agents.
+#
+# Agents are a cross-cutting VIEW of panes rather than a level of the hierarchy,
+# so rather than invent a fourth modifier these finish the ctrl+alt arrow
+# cluster: ctrl+alt vertical walks spaces, ctrl+alt horizontal walks the agent
+# list. Both are "move around the sidebar", which is the honest mental model.
+# Ghostty unbinds all four ctrl+alt arrows (its config, lines 59-62), so these
+# reach herdr. Left/right for a vertically-stacked list is the one compromise —
+# up/down was already spent on spaces, and herdr allows one binding per action.
+previous_agent      = "ctrl+alt+left"
+next_agent          = "ctrl+alt+right"
+
+# Third digit layer: alt+N = tab N, ctrl+alt+N = space N, prefix+N = agent N.
+# Free because switch_tab was moved off herdr's prefix+1..9 default onto alt+1..9.
+focus_agent         = "prefix+1..9"
+
+# Fullscreen the focused pane. tmux equivalent is stock prefix+z (resize-pane
+# -Z) — no explicit bind in tmux.conf, only the ZOOM flag in status-right.
+# Moved off herdr's prefix+z default to a direct key on request.
+#
+# COST: alt+f is readline's forward-word. herdr grabs the key first, so
+# word-forward stops working in every shell inside herdr — alt+b (backward-word)
+# still works, so the pair becomes lopsided. alt+z carries the same mnemonic
+# with no readline collision if that trade turns out to bite.
+zoom                = "alt+f"
+
+# Direct key because zoom cannot hide the sidebar itself (see [ui] below), so
+# clearing the screen is a two-key gesture: alt+f then alt+s. Off prefix+b to
+# keep that pair fast. alt+s is free in ghostty, tmux, and readline alike.
+toggle_sidebar      = "alt+s"
+
+# Resize is a MODE (enter, then arrows, then esc), so the entry key is pressed
+# constantly — prefix+r made it a two-chord gesture every time and that was the
+# slowest thing in the layout. Direct alt+r fixes it, and r-for-resize is the
+# obvious mnemonic. rename_tab yielded the key, and the whole rename family
+# then moved to the prefix layer (see above) — which is why prefix+r now means
+# rename-tab rather than resize, the reverse of herdr's defaults.
+#
+# COST: none that was not already paid. alt+r is readline's revert-line, but
+# rename_tab was already sitting on it — herdr has been swallowing that key all
+# along.
+resize_mode         = "alt+r"
 
 # Kept at herdr defaults (nothing in tmux.conf maps to these):
-#   help prefix+?          settings prefix+s       toggle_sidebar prefix+b
-#   workspace_picker prefix+w   goto prefix+g      zoom prefix+z
-#   resize_mode prefix+r   new_worktree prefix+shift+g
+#   help prefix+?          settings prefix+s
+#   workspace_picker prefix+w   goto prefix+g
+#   new_worktree prefix+shift+g
 #   cycle_pane_next prefix+tab  cycle_pane_previous prefix+shift+tab
 #   open_notification_target prefix+o
 
@@ -132,6 +192,68 @@ type = "shell"
 command = 'sh -c "$HOME/.config/herdr/herdr-cycle-space.sh prev"'
 description = "Previous space (tmux C-M-S-Tab)"
 
+# "Go where I'm needed" — jumps straight to a blocked agent (then done ones),
+# wherever it lives, without walking the list. See the script header for queue
+# ordering. This is the key that makes the sidebar's red dot actionable.
+#
+# alt+g verified free: nothing in tmux.conf binds M-g (M-a is the only bare
+# alt+letter there, next-window), Ghostty does not bind it, and it is not a
+# readline motion — unlike alt+b/alt+f/alt+d, which are word motions and must
+# stay clear.
+
+[[keys.command]]
+key = "alt+g"
+type = "shell"
+command = 'sh -c "$HOME/.config/herdr/herdr-goto-attention.sh"'
+description = "Go to agent needing attention"
+
+
+# Moving a pane BETWEEN tabs. herdr has no native action for this at all — no
+# keybinding, no UI gesture, only `herdr pane move`. tmux's break-pane and
+# join-pane, recovered through the socket API.
+#
+# $HERDR_ACTIVE_PANE_ID is the key discovery: herdr injects the focused pane's
+# context into every custom command, but under HERDR_ACTIVE_* names — NOT the
+# HERDR_PANE_ID/HERDR_TAB_ID names it exports inside a pane. The full set is
+# HERDR_ACTIVE_{PANE_ID,TAB_ID,WORKSPACE_ID,PANE_CWD} plus HERDR_BIN_PATH and
+# HERDR_SOCKET_PATH. That saves a `herdr pane current | jq` round-trip here.
+#
+# alt+shift+t verified free in Hyprland (no modmask-9 binds) and ghostty, and
+# it reads as the shifted form of new_tab = alt+t: alt+t makes an empty tab,
+# alt+shift+t makes one out of the pane you are looking at.
+#
+# Wrapped in sh -c for the same reason ctrl+alt+tab is: herdr tokenizes the
+# command string itself, so a bare command would pass $HERDR_ACTIVE_PANE_ID
+# through unexpanded. Pane ids never contain spaces, so no inner quoting.
+
+[[keys.command]]
+key = "alt+shift+t"
+type = "shell"
+command = 'sh -c "herdr pane move $HERDR_ACTIVE_PANE_ID --new-tab --focus"'
+description = "Break pane out to a new tab (tmux break-pane)"
+
+# Sideways moves need the tab list walked, so they go through a script.
+#
+# ctrl+alt+shift+arrows extend the config's own hierarchy: alt+shift+arrows
+# swap panes WITHIN a tab, and ctrl+alt is consistently one level up, so the
+# same gesture with ctrl added moves the pane ACROSS tabs. Free everywhere —
+# Hyprland has nothing on modmask 13, and although ghostty's config explicitly
+# unbinds ctrl+alt+arrows (lines 59-62) to let previous_agent/next_agent
+# through, ctrl+alt+shift+arrows were never bound by ghostty to begin with.
+# Recheck if that unbind list ever grows.
+
+[[keys.command]]
+key = "ctrl+alt+shift+left"
+type = "shell"
+command = 'sh -c "$HOME/.config/herdr/herdr-move-pane-tab.sh left"'
+description = "Move pane to the tab on the left"
+
+[[keys.command]]
+key = "ctrl+alt+shift+right"
+type = "shell"
+command = 'sh -c "$HOME/.config/herdr/herdr-move-pane-tab.sh right"'
+description = "Move pane to the tab on the right"
+
 
 # Flipping a two-pane tab between side-by-side and stacked. tmux does it with
 # `select-layout even-horizontal` / `even-vertical`; herdr has no equivalent
@@ -155,11 +277,57 @@ description = "Flip split direction (side-by-side <-> stacked)"
 [ui]
 accent = "blue"
 
+# herdr has no option tying sidebar visibility to zoom — verified against the
+# binary's config-key table, not just the docs: the only sidebar knobs are
+# width/min/max, start_collapsed, and collapsed_mode. There is also no sidebar
+# CLI verb, so a custom command cannot fake it either.
+#
+# "hidden" is the closest available: it gives collapse a true zero width instead
+# of leaving the narrow status rail behind, so alt+s after alt+f yields a genuinely
+# bare pane. Costs the at-a-glance agent dots while collapsed — which is the
+# point when zooming, and alt+s brings them straight back.
+sidebar_collapsed_mode = "hidden"
+
 # tmux: WheelUpPane bound to -N 1 for an analog touchpad feel (default is 3).
 mouse_scroll_lines = 1
 
 # tmux: pane-border-format shows "#P #{pane_current_command}".
 show_agent_labels_on_pane_borders = true
+
+# Agent list rows. Default is [["state_icon", "workspace", "tab"], ["agent"]],
+# which spends the second row on the literal string "claude" — no information
+# once you know the panel is full of Claude. Swapping that row for the session
+# title costs nothing in height and names each agent by what it is DOING.
+#
+# Claude Code writes its rolling session summary to the terminal title; herdr
+# surfaces it as terminal_title (raw) or terminal_title_stripped (leading status
+# glyph removed). Stripped is the one you want — but note it only strips the
+# idle "✳", not the working spinner frames ("◑" etc.), so a busy agent's row
+# shows a rotating glyph. That doubles as a liveness cue, hence keeping it.
+#
+# Fresh sessions with no summary yet fall back to the generic "Claude Code"
+# until Claude writes a real title.
+#
+# Space/tab stay on row 1 but dimmed, so the eye lands on the session name.
+# state_icon is left unstyled to preserve its state-dependent colour.
+agent_panel_sort = "spaces"
+# $idx is not a herdr built-in — it is a custom metadata token stamped by
+# herdr-number-sidebar.sh, which see. It holds the digit that focus_agent
+# (prefix+1..9) responds to, so the panel reads as its own keymap.
+[ui.sidebar.agents]
+rows = [["state_icon", "$idx", "workspace", "tab"], ["agent"]]
+
+[ui.sidebar.agents.rows_by_agent]
+claude = [
+  ["state_icon", "$idx", { token = "workspace", dim = true }, { token = "tab", dim = true }],
+  ["terminal_title_stripped"],
+]
+
+# Same token on spaces, holding the ctrl+alt+N digit. Second row is herdr's
+# default and unrelated to numbering — kept so overriding rows doesn't silently
+# drop the branch/git status line.
+[ui.sidebar.spaces]
+rows = [["state_icon", "$idx", "workspace"], ["branch", "git_status"]]
 
 [ui.toast]
 # Route background agent state changes to mako instead of in-app toasts.

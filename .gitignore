@@ -15,6 +15,12 @@ tools/.XCompose
 # Tmux plugins (third-party repos cloned per-machine; reinstall manually)
 terminal/.config/tmux/plugins/
 
+# Herdr per-plugin runtime cache. Herdr writes a copy of each linked manifest
+# here; if ~/.config/herdr/plugins is ever a stow-folded symlink instead of a
+# real directory, that copy lands back inside this repo. Plugin sources in
+# terminal/.config/herdr/plugins/<name>/ are tracked as normal.
+terminal/.config/herdr/plugins/config/
+
 # Generated per-machine autostart artifacts (installer-written / desktop cache)
 tools/.config/autostart/mimeinfo.cache
 tools/.config/autostart/jetbrains-toolbox.desktop

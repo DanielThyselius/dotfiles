@@ -1,0 +1,62 @@
+id = "sidebar-numbers"
+name = "Sidebar numbers"
+version = "1.0.0"
+description = "Keep space/tab/agent numbers in sync with their keybinding digits"
+min_herdr_version = "0.8.0"
+platforms = ["linux"]
+
+# Re-stamps numbering whenever the thing being numbered could have shifted.
+# herdr exposes no event subscription over the socket API (`herdr api` offers
+# only snapshot and schema), so a plugin is the only push-based option — the
+# alternative was a polling systemd timer, which would either lag or spin.
+#
+# LOOP HAZARD: the script writes back into herdr, so any event it can itself
+# cause must stay unhooked. It calls `tab rename` (fires tab.renamed) and
+# `report-metadata` (fires *.metadata_updated / pane.updated). None of those
+# three appear below, and none should be added.
+#
+# Events chosen for what they shift:
+#   workspace.* -> space numbers, and every agent row below them
+#   tab.*       -> tab numbers (gaps included)
+#   pane.*      -> agent row positions
+# Renames are absent on purpose: renaming changes a label, never a number.
+
+[[events]]
+on = "workspace.created"
+command = ["sh", "-c", "$HOME/.config/herdr/herdr-number-sidebar.sh"]
+
+[[events]]
+on = "workspace.closed"
+command = ["sh", "-c", "$HOME/.config/herdr/herdr-number-sidebar.sh"]
+
+[[events]]
+on = "workspace.moved"
+command = ["sh", "-c", "$HOME/.config/herdr/herdr-number-sidebar.sh"]
+
+[[events]]
+on = "workspace.reordered"
+command = ["sh", "-c", "$HOME/.config/herdr/herdr-number-sidebar.sh"]
+
+[[events]]
+on = "tab.created"
+command = ["sh", "-c", "$HOME/.config/herdr/herdr-number-sidebar.sh"]
+
+[[events]]
+on = "tab.closed"
+command = ["sh", "-c", "$HOME/.config/herdr/herdr-number-sidebar.sh"]
+
+[[events]]
+on = "tab.moved"
+command = ["sh", "-c", "$HOME/.config/herdr/herdr-number-sidebar.sh"]
+
+[[events]]
+on = "pane.created"
+command = ["sh", "-c", "$HOME/.config/herdr/herdr-number-sidebar.sh"]
+
+[[events]]
+on = "pane.closed"
+command = ["sh", "-c", "$HOME/.config/herdr/herdr-number-sidebar.sh"]
+
+[[events]]
+on = "pane.agent_detected"
+command = ["sh", "-c", "$HOME/.config/herdr/herdr-number-sidebar.sh"]
