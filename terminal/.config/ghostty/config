@@ -25,6 +25,10 @@ shell-integration-features = no-cursor,ssh-env
 # Keyboard bindings
 keybind = shift+insert=paste_from_clipboard
 keybind = control+insert=copy_to_clipboard
+# Send Shift+Enter as CSI-u so TUIs can distinguish it from Enter.
+keybind = shift+enter=csi:13;2u
+# Legacy encoding sends Alt+Shift+Enter the same as Alt+Enter; send CSI-u so tmux can match M-S-Enter.
+keybind = alt+shift+enter=csi:13;4u
 
 # Ctrl+Backspace = same bytes as Alt+Backspace (delete previous word)
 keybind = ctrl+backspace=text:\x1b\x7f
