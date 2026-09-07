@@ -101,18 +101,24 @@ close_workspace     = "prefix+shift+k"  # tmux: bind K kill-session
 # self-label from the terminal title via show_agent_labels_on_pane_borders and
 # rows_by_agent. herdr's own default for it, prefix+shift+p, is deliberately
 # left free: the note that used to sit here claimed space navigation had taken
-# it, but previous_workspace/next_workspace landed on ctrl+alt+up/down instead,
+# it, but previous_workspace/next_workspace landed on ctrl+alt arrows instead,
 # so that collision never actually happened.
 rename_tab          = "prefix+r"
 rename_workspace    = "prefix+shift+r"
 rename_pane         = "prefix+ctrl+r"
 
-# Space navigation is direct rather than prefixed — the sidebar stacks spaces
-# vertically, so up/down is the spatial match. tmux wanted this too
+# Space navigation is direct rather than prefixed. tmux wanted this too
 # (`#bind -n C-M-Up switch-client -p`) but the chord was taken by resize-pane;
 # herdr puts resize behind a mode, freeing it. Costs prefix+shift+p/n.
-previous_workspace  = "ctrl+alt+up"      # tmux: bind P switch-client -p
-next_workspace      = "ctrl+alt+down"    # tmux: bind N switch-client -n
+#
+# Left/right, not up/down: spaces are the coarse level (whole projects, few of
+# them), agents are the fine level (many rows, walked constantly). Up/down for
+# a vertically stacked list matters more for the list you walk most, so the
+# agent list gets the vertical pair and spaces take horizontal — same trade
+# Hyprland makes with SUPER+left/right between workspaces. Swapped 2026-09-06;
+# previously spaces were up/down and agents left/right.
+previous_workspace  = "ctrl+alt+left"    # tmux: bind P switch-client -p
+next_workspace      = "ctrl+alt+right"   # tmux: bind N switch-client -n
 
 # Mirrors the hierarchy: alt+N = tab N, ctrl+alt+N = space N
 # (and Hyprland's SUPER+N = workspace N).
@@ -122,13 +128,23 @@ switch_workspace    = "ctrl+alt+1..9"
 #
 # Agents are a cross-cutting VIEW of panes rather than a level of the hierarchy,
 # so rather than invent a fourth modifier these finish the ctrl+alt arrow
-# cluster: ctrl+alt vertical walks spaces, ctrl+alt horizontal walks the agent
-# list. Both are "move around the sidebar", which is the honest mental model.
-# Ghostty unbinds all four ctrl+alt arrows (its config, lines 59-62), so these
-# reach herdr. Left/right for a vertically-stacked list is the one compromise —
-# up/down was already spent on spaces, and herdr allows one binding per action.
-previous_agent      = "ctrl+alt+left"
-next_agent          = "ctrl+alt+right"
+# cluster: ctrl+alt vertical walks the agent list, ctrl+alt horizontal walks
+# spaces. Both are "move around the sidebar", which is the honest mental model,
+# and up/down matches the vertically stacked agent rows (see the space
+# bindings above for why agents got the vertical pair). Ghostty unbinds all
+# four ctrl+alt arrows (its config, lines 59-62), so these reach herdr.
+previous_agent      = "ctrl+alt+up"
+next_agent          = "ctrl+alt+down"
+
+# Toggle the focused agent between done (teal) and idle. Dismisses a finished
+# agent without typing into it, and flips an idle one back to done as a "look at
+# this later" flag. Fork-only (see done_acknowledgement under [ui]); the packaged
+# binary reports it as an unknown key. The same toggle is a click on the state
+# icon in the agent's sidebar row.
+#
+# alt+a verified free: ghostty binds nothing on it, Hyprland's A binds are all
+# SUPER combos, tmux.conf's M-a (next-window) was not carried over.
+acknowledge_agent   = "alt+a"
 
 # Third digit layer: alt+N = tab N, ctrl+alt+N = space N, prefix+N = agent N.
 # Free because switch_tab was moved off herdr's prefix+1..9 default onto alt+1..9.
@@ -331,7 +347,19 @@ show_agent_labels_on_pane_borders = true
 #
 # Space/tab stay on row 1 but dimmed, so the eye lands on the session name.
 # state_icon is left unstyled to preserve its state-dependent colour.
-agent_panel_sort = "spaces"
+agent_panel_sort = "priority"
+
+# Keep a finished agent teal ("done") until you actually type into its pane.
+# Stock herdr clears it as soon as the pane is focused or even just visible in
+# the tab you switch to, which loses agents when tabbing through. This option
+# only exists in the fork at ~/Source/herdr (branch done-acknowledgement-on-input,
+# installed to ~/.local/bin/herdr); the packaged binary reports it as an unknown
+# key and ignores it. Proposed upstream via a Discussion, see herdr issue #2718.
+done_acknowledgement = "input"
+
+# Fork-only companion: the same coloured status dot the sidebar uses, in front
+# of each pane's border label, so the state is readable on the pane itself.
+pane_border_status = true
 # $idx is not a herdr built-in — it is a custom metadata token stamped by
 # herdr-number-sidebar.sh, which see. It holds the digit that focus_agent
 # (prefix+1..9) responds to, so the panel reads as its own keymap.
@@ -340,7 +368,7 @@ rows = [["state_icon", "$idx", "workspace", "tab"], ["agent"]]
 
 [ui.sidebar.agents.rows_by_agent]
 claude = [
-  ["state_icon", "$idx", { token = "workspace", dim = true }, { token = "tab", dim = true }],
+  ["state_icon", "$idx", { token = "workspace", dim = true }],
   ["terminal_title_stripped"],
 ]
 

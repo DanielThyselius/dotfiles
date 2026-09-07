@@ -1,0 +1,76 @@
+#!/bin/sh
+# Rebase the herdr fork onto the packaged upstream release, rebuild, install.
+#
+#   herdr-fork-sync [--push] [REF]
+#
+# REF defaults to the tag matching `pacman -Q herdr` (so the fork stays
+# "packaged version + our commits"); pass upstream/master to live on the edge.
+# --push force-pushes the rebased branch to origin (the GitHub fork).
+#
+# Never run `herdr update` from the fork: it downloads the official binary
+# and renames it over the running executable, i.e. over ~/.local/bin/herdr.
+# Let pacman update /usr/bin/herdr instead; ~/.local/bin shadows it on PATH.
+#
+# Ends by saying whether the running server still predates the installed
+# binary. Restarting kills every pane, so that step is left to you:
+#   herdr server stop && herdr
+set -eu
+
+repo="${HERDR_FORK_DIR:-$HOME/Source/herdr}"
+branch="${HERDR_FORK_BRANCH:-done-acknowledgement-on-input}"
+dest="$HOME/.local/bin/herdr"
+
+push=0
+ref=""
+for arg in "$@"; do
+  case "$arg" in
+    --push) push=1 ;;
+    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) ref="$arg" ;;
+  esac
+done
+
+cd "$repo"
+[ -z "$(git status --porcelain)" ] || { echo "herdr-fork-sync: $repo has uncommitted changes; commit or stash first" >&2; exit 1; }
+
+git fetch -q upstream --tags
+if [ -z "$ref" ]; then
+  pkg=$(pacman -Q herdr 2>/dev/null | awk '{print $2}' | cut -d- -f1)
+  [ -n "$pkg" ] || { echo "herdr-fork-sync: herdr package not installed; pass a ref explicitly" >&2; exit 1; }
+  ref="v$pkg"
+fi
+git rev-parse -q --verify "$ref^{commit}" >/dev/null || { echo "herdr-fork-sync: unknown ref $ref" >&2; exit 1; }
+
+git checkout -q "$branch"
+if git merge-base --is-ancestor "$ref" HEAD; then
+  echo "branch $branch already includes $ref"
+else
+  echo "rebasing $branch onto $ref"
+  git rebase "$ref" || { echo "herdr-fork-sync: rebase stopped; resolve, 'git rebase --continue', then rerun" >&2; exit 1; }
+fi
+
+echo "building"
+mise exec -- cargo build --release -q
+
+if [ -f "$dest" ] && cmp -s target/release/herdr "$dest"; then
+  echo "installed binary already current: $dest"
+else
+  install -m 755 target/release/herdr "$dest"
+  echo "installed $dest ($(git rev-parse --short HEAD))"
+fi
+
+if [ "$push" -eq 1 ]; then
+  git push -q --force-with-lease origin "$branch"
+  echo "pushed $branch to origin"
+fi
+
+pid=$(pgrep -f 'herdr server' | head -1 || true)
+if [ -z "$pid" ]; then
+  echo "no herdr server running; next 'herdr' launch uses the new binary"
+else
+  exe=$(readlink "/proc/$pid/exe" 2>/dev/null || echo unknown)
+  case "$exe" in
+    "$dest") echo "running server already uses the installed binary" ;;
+    *) echo "RESTART PENDING: server runs $exe; run 'herdr server stop && herdr' (kills all panes)" ;;
+  esac
+fi
