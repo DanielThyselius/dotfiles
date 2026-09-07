@@ -25,3 +25,6 @@ terminal/.config/herdr/plugins/config/
 tools/.config/autostart/mimeinfo.cache
 tools/.config/autostart/jetbrains-toolbox.desktop
 *.bak.*
+
+# Migration/upgrade backups (*.premigrate.*.bak, *.omarchy-upgrade-to-quattro.*.bak)
+*.bak
