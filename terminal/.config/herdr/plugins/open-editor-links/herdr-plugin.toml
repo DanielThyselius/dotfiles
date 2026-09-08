@@ -1,0 +1,26 @@
+id = "open-editor-links"
+name = "Open file links in the editor"
+version = "1.0.0"
+description = "Ctrl+click on a file:// OSC 8 link opens it through ~/.local/bin/open-editor"
+min_herdr_version = "0.8.0"
+platforms = ["linux"]
+
+# herdr's own ctrl+click only opens http(s) URLs (client refuses anything
+# else via safe_web_url), so file:// links from Claude Code were silently
+# dropped. Ghostty used to catch the click before herdr saw it; foot forwards
+# every click to the app, so this handler is what makes file links work
+# regardless of the host terminal.
+#
+# open-editor is resolved via PATH on purpose so a test server can shadow it.
+
+[[actions]]
+id = "open"
+title = "Open file link in editor"
+contexts = ["pane"]
+command = ["sh", "-c", "exec open-editor \"$HERDR_PLUGIN_CLICKED_URL\""]
+
+[[link_handlers]]
+id = "file-link"
+title = "Open file link in editor"
+pattern = "^file://"
+action = "open"

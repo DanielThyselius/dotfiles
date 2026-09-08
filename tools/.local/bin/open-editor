@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Dispatcher for clicked/picked file paths (OSC 8 links, file managers, tmux-thumbs).
 #   *.md, *.markdown, *.mkd -> Typora
-#   everything else          -> nvim in a new Ghostty window
+#   everything else          -> nvim in a new default-terminal window (xdg-terminal-exec)
 # Accepts plain paths, file:// URLs, and grep/compiler-style "path:LINE[:COL]".
 #
 # Exists because nvim.desktop is Terminal=true, and xdg-open ignores that flag
@@ -35,7 +35,7 @@ case ${f,,} in
 esac
 
 if [ -n "$line" ]; then
-    exec ghostty -e nvim "+$line" "$f"
+    exec xdg-terminal-exec nvim "+$line" "$f"
 else
-    exec ghostty -e nvim "$f"
+    exec xdg-terminal-exec nvim "$f"
 fi
