@@ -1,7 +1,11 @@
 [tools]
+babashka = "latest"
+claude = "latest"
+codex = "latest"
 dotnet = "9"
 elixir = "latest"
 erlang = "latest"
+gh = "latest"
 java = "latest"
 node = "25.8.0"
 python = "latest"
