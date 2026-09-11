@@ -18,3 +18,16 @@ to -- they are ignored.
 
 Do not do this for every incidental `path:line` mention inside prose or code
 review notes; use it for paths that are the point of the sentence.
+
+## Clickable PR and issue references
+
+Every PR or issue mentioned in a reply gets a markdown link with the full
+GitHub URL -- never a bare `#865`:
+
+    [portal#865](https://github.com/Grantigo/portal/pull/865)
+
+This applies everywhere a PR/issue is referenced in prose to me: reviews,
+status updates, roadmaps, "what's next" summaries, one-line mentions. When
+several repos are in play, prefix the display text with the repo (`selma#75`,
+`portal#865`) so bare numbers never collide. There is no volume exception: a
+summary naming fifteen PRs links all fifteen.
