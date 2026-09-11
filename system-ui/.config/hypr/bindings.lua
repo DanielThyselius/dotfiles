@@ -59,7 +59,15 @@ o.bind("SUPER + SHIFT + S", "Move window to scratchpad", hl.dsp.window.move({ wo
 
 -- Workspace overview on SUPER + P (default: pseudo window); pseudo moved to SUPER + U.
 hl.unbind("SUPER + P")
-o.bind("SUPER + P", "Workspace overview", "omarchy-shell shell toggle daniel.overview")
+o.bind("SUPER + P", "Workspace overview", "omarchy-shell shell toggle se.mindfulstack.omyview")
+-- Same overview on SUPER + § (the key left of 1 on the Swedish layout) and on
+-- 3-finger swipe up/down (horizontal 3-finger swipe stays workspace switching, see input.lua).
+o.bind("SUPER + SECTION", "Workspace overview", "omarchy-shell shell toggle se.mindfulstack.omyview")
+local function toggle_overview()
+  hl.dispatch(hl.dsp.exec_cmd("omarchy-shell shell toggle se.mindfulstack.omyview"))
+end
+hl.gesture({ fingers = 3, direction = "up", action = toggle_overview })
+hl.gesture({ fingers = 3, direction = "down", action = toggle_overview })
 o.bind("SUPER + U", "Pseudo window", hl.dsp.window.pseudo())
 
 -- === Lock / layout / idle ===
