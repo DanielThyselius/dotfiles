@@ -11,9 +11,11 @@ system-ui/.config/omarchy/current/
 
 # Omarchy shell plugins installed via `omarchy plugin add` (machine-managed git
 # checkouts; `~/.config/omarchy` is a stow-folded symlink so the clones land in
-# this repo). Maintained upstream, not here — e.g. se.mindfulstack.omyview lives
-# at github.com/Mindful-Stack/omyview; reinstall with `omarchy plugin add`.
+# this repo). Maintained upstream, not here; reinstall with `omarchy plugin add`:
+#   se.mindfulstack.omyview        github.com/Mindful-Stack/omyview
+#   io.github.dotnetemmanuel.vitals github.com/dotnetemmanuel/omarchy-vitals
 system-ui/.config/omarchy/plugins/se.mindfulstack.omyview/
+system-ui/.config/omarchy/plugins/io.github.dotnetemmanuel.vitals/
 
 # Personal identity strings (kept local-only, copy-paste when setting up a new machine)
 tools/.XCompose

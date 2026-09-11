@@ -35,6 +35,9 @@
           "id": "omarchy.tray"
         },
         {
+          "id": "io.github.dotnetemmanuel.vitals"
+        },
+        {
           "id": "omarchy.tailscale"
         },
         {
