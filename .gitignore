@@ -9,6 +9,12 @@
 # Omarchy active theme (changes on every theme swap)
 system-ui/.config/omarchy/current/
 
+# Omarchy shell plugins installed via `omarchy plugin add` (machine-managed git
+# checkouts; `~/.config/omarchy` is a stow-folded symlink so the clones land in
+# this repo). Maintained upstream, not here — e.g. se.mindfulstack.omyview lives
+# at github.com/Mindful-Stack/omyview; reinstall with `omarchy plugin add`.
+system-ui/.config/omarchy/plugins/se.mindfulstack.omyview/
+
 # Personal identity strings (kept local-only, copy-paste when setting up a new machine)
 tools/.XCompose
 
