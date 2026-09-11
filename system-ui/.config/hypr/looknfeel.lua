@@ -60,3 +60,7 @@ o.window("^Spotify$", {
   size = { 1170, 844 },
   move = { 439, 218 },
 })
+
+-- Omyview animates its own open/close (fade + scale), so keep Hyprland's layer
+-- animation off for it; otherwise the two stack into a double fade.
+hl.layer_rule({ match = { namespace = "omyview" }, no_anim = true, animation = "none" })
