@@ -258,19 +258,37 @@ description = "Go to agent needing attention"
 #   alt+g        agent throughput. Blocked first regardless of rank, because a
 #                blocked agent is seconds of yours and minutes of its own.
 #
-# alt+p descends: first press is 5, then 4, 3, 2, 1, then unset. One press says
-# "this matters", which is the thing worth saying quickly. Unset sorts as 3, so
-# the key is only needed to deviate from the middle.
+# alt+p raises, alt+shift+p lowers, each one step, clamped at 5 and 1. Landing
+# back on 3 unsets the rank instead of stamping "P3": unset already sorts as 3,
+# and not labelling thirty unranked rows with a number that says nothing keeps
+# the panel readable.
+#
+# prefix+p opens the whole ranked list as a popup. It is the view the sidebar
+# cannot give, because the sidebar sorts by space and shows a window, not a
+# ranking. Inside it, 1-5 re-rank the highlighted row and the list redraws, so
+# it doubles as the bulk way to triage a morning's worth of sessions.
 #
 # COST: alt+p is Claude Code's model picker, which herdr swallows before the pane
-# sees it. Accepted knowingly — the picker is also on /model. alt+shift+g is
-# free: prefix+shift+g is new_worktree, a different layer, and nothing in
-# tmux.conf or readline claims alt+shift+g.
+# sees it. Accepted knowingly — that picker is also on /model. alt+shift+g and
+# alt+shift+p are free, and prefix+p is one of the few prefix letters herdr
+# leaves unbound.
 [[keys.command]]
 key = "alt+p"
 type = "shell"
-command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh cycle"'
-description = "Cycle agent priority (5 to 1, then unset)"
+command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh up"'
+description = "Raise agent priority"
+
+[[keys.command]]
+key = "alt+shift+p"
+type = "shell"
+command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh down"'
+description = "Lower agent priority"
+
+[[keys.command]]
+key = "prefix+p"
+type = "shell"
+command = 'sh -c "herdr plugin pane open --plugin agent-priority --entrypoint picker"'
+description = "Ranked agent picker"
 
 [[keys.command]]
 key = "alt+shift+g"

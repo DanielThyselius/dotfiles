@@ -17,3 +17,15 @@ platforms = ["linux"]
 # the only safe moment to bulk-stamp.
 [[startup]]
 command = ["sh", "-c", "$HOME/.config/herdr/herdr-agent-priority.sh stamp"]
+
+# The ranked view, opened with prefix+p. A popup rather than an overlay because
+# a popup is session-modal and receives every keystroke including Escape, which
+# is what fzf needs, and because it is not a real pane: no pane id, no lifecycle
+# events, no layout change to undo afterwards.
+[[panes]]
+id = "picker"
+title = "Agent priority"
+placement = "popup"
+width = "80%"
+height = "60%"
+command = ["sh", "-c", "$HOME/.config/herdr/herdr-agent-priority.sh pick"]
