@@ -245,6 +245,40 @@ command = 'sh -c "$HOME/.config/herdr/herdr-goto-attention.sh"'
 description = "Go to agent needing attention"
 
 
+# Priority: alt+p ranks the focused session, alt+shift+g walks the ranking.
+#
+# These two keys split a job alt+g alone was doing badly. With 30-odd agents the
+# sidebar says *that* things want you, never *which* first, so the day goes on
+# whoever finished last. A rank set once, when the session starts, lets the work
+# be chosen instead. Priority 1 never getting reached is the intent: that is the
+# cue to close it, not to do it.
+#
+# They also ration two different scarce things, which is why they stayed apart:
+#   alt+shift+g  your attention. Strict priority order, worked top down.
+#   alt+g        agent throughput. Blocked first regardless of rank, because a
+#                blocked agent is seconds of yours and minutes of its own.
+#
+# alt+p descends: first press is 5, then 4, 3, 2, 1, then unset. One press says
+# "this matters", which is the thing worth saying quickly. Unset sorts as 3, so
+# the key is only needed to deviate from the middle.
+#
+# COST: alt+p is Claude Code's model picker, which herdr swallows before the pane
+# sees it. Accepted knowingly — the picker is also on /model. alt+shift+g is
+# free: prefix+shift+g is new_worktree, a different layer, and nothing in
+# tmux.conf or readline claims alt+shift+g.
+[[keys.command]]
+key = "alt+p"
+type = "shell"
+command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh cycle"'
+description = "Cycle agent priority (5 to 1, then unset)"
+
+[[keys.command]]
+key = "alt+shift+g"
+type = "shell"
+command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh goto"'
+description = "Go to next highest-priority agent"
+
+
 # Moving a pane BETWEEN tabs. herdr has no native action for this at all — no
 # keybinding, no UI gesture, only `herdr pane move`. tmux's break-pane and
 # join-pane, recovered through the socket API.
@@ -360,15 +394,18 @@ done_acknowledgement = "input"
 # Fork-only companion: the same coloured status dot the sidebar uses, in front
 # of each pane's border label, so the state is readable on the pane itself.
 pane_border_status = true
-# $idx is not a herdr built-in — it is a custom metadata token stamped by
-# herdr-number-sidebar.sh, which see. It holds the digit that focus_agent
-# (prefix+1..9) responds to, so the panel reads as its own keymap.
+# Neither $idx nor $pri is a herdr built-in — both are custom metadata tokens.
+# $idx is stamped by herdr-number-sidebar.sh and holds the digit that focus_agent
+# (prefix+1..9) responds to, so the panel reads as its own keymap. $pri is
+# stamped by herdr-agent-priority.sh and holds the 1-5 rank set with alt+p; it is
+# absent on most rows, and a token with no value renders as nothing rather than
+# as its own name, so unranked agents stay clean.
 [ui.sidebar.agents]
-rows = [["state_icon", "$idx", "workspace", "tab"], ["agent"]]
+rows = [["state_icon", "$idx", "$pri", "workspace", "tab"], ["agent"]]
 
 [ui.sidebar.agents.rows_by_agent]
 claude = [
-  ["state_icon", "$idx", { token = "workspace", dim = true }],
+  ["state_icon", "$idx", "$pri", { token = "workspace", dim = true }],
   ["terminal_title_stripped"],
 ]
 

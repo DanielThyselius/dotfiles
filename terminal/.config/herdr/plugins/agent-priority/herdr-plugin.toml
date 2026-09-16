@@ -1,0 +1,19 @@
+id = "agent-priority"
+name = "Agent priority"
+version = "1.0.0"
+description = "Re-apply stored agent priorities to the sidebar after a restart"
+min_herdr_version = "0.8.0"
+platforms = ["linux"]
+
+# Priorities are shown as the $pri metadata token on each agent row, and herdr
+# rebuilds metadata tokens as empty on session restore (persist/restore.rs), so
+# without this hook every priority would look unset after a restart while the
+# store still held it. [[startup]] runs once the session is restored and the
+# socket is ready, which is exactly when the tokens need re-projecting.
+#
+# LOOP HAZARD: the script writes back into herdr with `pane report-metadata`,
+# which fires pane.updated and *.metadata_updated. No event hook here, and none
+# should be added — a metadata hook would re-trigger itself forever. Startup is
+# the only safe moment to bulk-stamp.
+[[startup]]
+command = ["sh", "-c", "$HOME/.config/herdr/herdr-agent-priority.sh stamp"]
