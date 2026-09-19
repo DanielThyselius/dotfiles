@@ -263,7 +263,7 @@ description = "Go to agent needing attention"
 # and not labelling thirty unranked rows with a number that says nothing keeps
 # the panel readable.
 #
-# prefix+p opens the whole ranked list as a popup. It is the view the sidebar
+# alt+shift+g opens the whole ranked list as a popup. It is the view the sidebar
 # cannot give, because the sidebar sorts by space and shows a window, not a
 # ranking. Inside it, 1-5 re-rank the highlighted row and the list redraws, so
 # it doubles as the bulk way to triage a morning's worth of sessions.
@@ -273,9 +273,13 @@ description = "Go to agent needing attention"
 # reports the pane focused, but the session restores the previous focus as the
 # popup closes. `open` launches the popup, waits for its choice, then focuses.
 #
-# alt+g walks the ranking. It used to be the blocked-first sweep, which moved to
-# prefix+a — blocked is the rare state here (often zero of thirty), so the key
-# that gets pressed all day should be the one for the ranking.
+# alt+g walks the ranking and alt+shift+g opens it, which is the pairing that
+# actually reads: same letter, shift for "show me the list instead of taking me
+# there". The blocked-first sweep moved to prefix+a, since blocked is the rare
+# state here, often zero of thirty.
+#
+# alt+p and alt+shift+p now announce the new rank with a herdr notification, so
+# the feedback lands where you are looking instead of in the sidebar.
 #
 # COST: alt+p is Claude Code's model picker, which herdr swallows before the pane
 # sees it. Accepted knowingly — that picker is also on /model. Note that
@@ -296,7 +300,7 @@ command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh down"'
 description = "Lower agent priority"
 
 [[keys.command]]
-key = "prefix+p"
+key = "alt+shift+g"
 type = "shell"
 command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh open"'
 description = "Ranked agent picker"

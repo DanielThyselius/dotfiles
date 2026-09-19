@@ -9,7 +9,8 @@
 #   herdr-agent-priority.sh open              open the picker and act on its choice
 #   herdr-agent-priority.sh pick              the picker itself, run inside the popup
 #   herdr-agent-priority.sh rows              the picker's rows, also fzf's reload source
-#   herdr-agent-priority.sh stamp             re-apply every stored priority (startup hook)
+#   herdr-agent-priority.sh view              re-apply the priority sort to the sidebar
+#   herdr-agent-priority.sh stamp             re-apply priorities and the sort (startup hook)
 #   herdr-agent-priority.sh list              show the queue goto walks, in order
 #
 # THE POINT. With 30-odd agents the sidebar tells you *that* things want you,
@@ -40,6 +41,21 @@
 # changing while the agent works. A stale title costs more than navigator
 # filtering buys.
 #
+# TWO TOKENS, ONE VISIBLE. $pri carries the label and is only set when you have
+# actually ranked something, so thirty untriaged rows stay clean. $prisort is
+# stamped on EVERY agent, defaulting to 3, and is never referenced by the
+# sidebar template, so it is invisible. It exists because the sidebar sort is a
+# string sort over a token: with $pri alone the unranked rows have no value at
+# all and sink to the bottom, which would put a deliberate "1, I am not doing
+# this" above an untriaged agent. Sorting on a token that is always present puts
+# unset exactly where it belongs, in the middle.
+#
+# THE SORT ITSELF is herdr's declarative agent view (agent.view.set), which
+# accepts `{"field": {"token": "prisort"}}` as a sort key. Setting a view with a
+# label makes the client take its row order from the server's agent_order and
+# ignore ui.agent_panel_sort entirely, so no fork is needed to order the panel.
+# There is no CLI verb for it, hence the socket call below.
+#
 # LOOP HAZARD, same as herdr-number-sidebar.sh: report-metadata fires
 # pane.updated and *.metadata_updated. The plugin must never hook those events,
 # and it does not — startup only.
@@ -64,6 +80,20 @@ log() {
   printf '%s %s\n' "$(date '+%m-%d %H:%M:%S')" "$*" >>"$LOG" 2>/dev/null || return 0
   if [ "$(wc -l <"$LOG" 2>/dev/null || echo 0)" -gt 200 ]; then
     tail -n 100 "$LOG" >"$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"
+  fi
+}
+
+# Feedback where the eyes already are. Changing a rank otherwise only shows up
+# in the sidebar, which is the thing you are trying not to have to read.
+notify() { # notify <pane_id> <priority|"">
+  title=$(herdr agent list | jq -r --arg p "$1" \
+    'first(.result.agents[] | select(.pane_id == $p)
+      | (.terminal_title_stripped // .terminal_title // .pane_id)) // empty')
+  [ -n "$title" ] || title="$1"
+  if [ -n "$2" ]; then
+    herdr notification show "Priority $2" --body "$title" --position top-right --sound none >/dev/null 2>&1 || true
+  else
+    herdr notification show "Priority cleared" --body "$title" --position top-right --sound none >/dev/null 2>&1 || true
   fi
 }
 
@@ -94,15 +124,47 @@ store_set() { # store_set <pane_id> <priority|"">
 
 stamp_one() { # stamp_one <pane_id> <priority|"">
   if [ -n "$2" ]; then
-    herdr pane report-metadata "$1" --source "$SOURCE" --token "pri=P$2" >/dev/null
+    herdr pane report-metadata "$1" --source "$SOURCE" \
+      --token "pri=P$2" --token "prisort=$2" >/dev/null
   else
-    herdr pane report-metadata "$1" --source "$SOURCE" --clear-token pri >/dev/null
+    herdr pane report-metadata "$1" --source "$SOURCE" \
+      --clear-token pri --token "prisort=$DEFAULT" >/dev/null
   fi
+}
+
+# Tell herdr to order the agent panel by the hidden sort token. Ranked first,
+# then whoever is actually asking for something, then the usual space order so
+# equal rows keep a stable, familiar arrangement.
+set_view() {
+  python3 - "$SOURCE" <<'PYVIEW' >/dev/null 2>&1 || true
+import json, os, socket, sys
+req = {
+    "id": "agent-priority:view",
+    "method": "agent.view.set",
+    "params": {
+        "source": sys.argv[1],
+        "label": "priority",
+        "sort": [
+            {"field": {"token": "prisort"}, "order": "desc"},
+            {"field": "attention", "order": "desc"},
+            {"field": "workspace_order", "order": "asc"},
+            {"field": "pane_order", "order": "asc"},
+        ],
+    },
+}
+path = os.path.expanduser("~/.config/herdr/herdr.sock")
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(5)
+s.connect(path)
+s.sendall((json.dumps(req) + "\n").encode())
+s.recv(65536)
+PYVIEW
 }
 
 apply() { # apply <pane_id> <priority|"">
   store_set "$1" "$2"
   stamp_one "$1" "$2"
+  notify "$1" "$2"
 }
 
 # Focus a pane so the CLIENT actually moves.
@@ -304,6 +366,24 @@ stamp)
     fi
   done <"$STORE"
   mv "$tmp" "$STORE"
+
+  # Every agent needs the hidden sort token or it falls off the bottom of the
+  # panel. Read the whole list once and write only where it is actually wrong,
+  # so the usual case costs one API call instead of thirty.
+  herdr agent list |
+    jq -r '.result.agents[] | "\(.pane_id)\t\(.tokens.prisort // "")"' |
+    while IFS="$(printf '\t')" read -r pane cur; do
+      [ -n "$pane" ] || continue
+      want=$(stored "$pane")
+      [ -n "$want" ] || want=$DEFAULT
+      [ "$cur" = "$want" ] || stamp_one "$pane" "$(stored "$pane")"
+    done
+
+  set_view
+  ;;
+
+view)
+  set_view
   ;;
 
 list)

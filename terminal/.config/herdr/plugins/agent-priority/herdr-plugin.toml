@@ -18,6 +18,18 @@ platforms = ["linux"]
 [[startup]]
 command = ["sh", "-c", "$HOME/.config/herdr/herdr-agent-priority.sh stamp"]
 
+# A newly detected agent has no sort token yet, and an agent with no sort token
+# sorts below every ranked one instead of sitting at the default middle. stamp
+# is idempotent and only writes where a value is actually wrong, so this costs
+# one API call in the normal case.
+#
+# pane.agent_detected is safe to hook for the same reason herdr-number-sidebar
+# hooks it: it is not re-fired by report-metadata. Never hook pane.updated or
+# the metadata events.
+[[events]]
+on = "pane.agent_detected"
+command = ["sh", "-c", "$HOME/.config/herdr/herdr-agent-priority.sh stamp"]
+
 # The ranked view, opened with prefix+p. A popup rather than an overlay because
 # a popup is session-modal and receives every keystroke including Escape, which
 # is what fzf needs, and because it is not a real pane: no pane id, no lifecycle
