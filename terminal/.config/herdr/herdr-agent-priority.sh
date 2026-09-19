@@ -193,6 +193,12 @@ focus_pane() { # focus_pane <pane_id>
 # done, because a blocked agent is usually one keystroke away from running again
 # and costs you seconds rather than a review; then longest-waiting first.
 #
+# That last key is load-bearing, not decoration. Most agents sit at the default
+# rank, so without a deterministic tiebreak the head of the queue shuffles as
+# soon as anything about an agent changes, and "go to the top and stay there"
+# walks off somewhere new on every press. state_change_seq is monotonic and does
+# not move when a pane is merely focused.
+#
 # Only blocked and done are candidates. Working agents want nothing and idle
 # ones have already been dealt with.
 queue() {
@@ -203,8 +209,9 @@ queue() {
           focused,
           status: .agent_status,
           title: (.terminal_title_stripped // .terminal_title // ""),
+          seq: .state_change_seq,
           pri: (((.tokens.pri // "") | ltrimstr("P") | tonumber?) // $def) } ]
-    | sort_by(-.pri, (if .status == "blocked" then 0 else 1 end))
+    | sort_by(-.pri, (if .status == "blocked" then 0 else 1 end), .seq)
     | .[]
     | [ .pane_id, (.pri | tostring), .status, (if .focused then "*" else "-" end), .title ]
     | @tsv'
@@ -226,12 +233,14 @@ rows() {
           workspace: .workspace_id,
           title: (.terminal_title_stripped // .terminal_title // ""),
           ranked: (((.tokens.pri // "") | length) > 0),
+          seq: .state_change_seq,
           pri: (((.tokens.pri // "") | ltrimstr("P") | tonumber?) // $def) } ]
     | sort_by(-.pri,
         (if .status == "blocked" then 0
          elif .status == "done" then 1
          elif .status == "working" then 2
-         else 3 end))
+         else 3 end),
+        .seq)
     | .[]
     | [ .pane_id,
         (if .ranked then "P\(.pri)" else "--" end),
@@ -285,13 +294,29 @@ clear)
   ;;
 
 goto)
-  # Repeated presses walk down the queue: find where the focused pane sits and
-  # advance one, wrapping. Reading `focused` out of the queue itself keeps that
-  # correct no matter how the script was invoked.
-  target=$(queue | awk -F'\t' '
-    { pane[NR] = $1; if ($4 == "*") here = NR }
-    END { if (NR) print pane[(here % NR) + 1] }')
-  [ -n "$target" ] || exit 0
+  # Always the top of the ranking, never the next one down.
+  #
+  # Walking the queue quietly defeated the point: it let you press past the
+  # thing you said mattered most without ever deciding anything. Landing on the
+  # top and staying there forces the decision — answer it, or say it is not
+  # actually your top priority. The queue already excludes working agents, so
+  # answering one is enough to make it step aside on its own.
+  #
+  # The escape is the picker, NOT a demotion. "I am not ready for this right
+  # now" is a different statement from "this is less important", and demoting to
+  # get past it would quietly corrupt the ranking into a to-do order.
+  head=$(queue | head -1)
+  [ -n "$head" ] || exit 0
+  target=$(printf '%s\n' "$head" | cut -f1)
+  here=$(printf '%s\n' "$head" | cut -f4)
+  title=$(printf '%s\n' "$head" | cut -f5)
+  if [ "$here" = "*" ]; then
+    log "goto already at the top ($target)"
+    herdr notification show "Top of the ranking" \
+      --body "${title:-$target} · alt+shift+g to pick another" \
+      --position top-right --sound none >/dev/null 2>&1 || true
+    exit 0
+  fi
   log "goto focusing $target"
   focus_pane "$target"
   ;;
@@ -308,7 +333,7 @@ pick)
   sel=$(rows | fzf \
     --delimiter='\t' --with-nth=2.. --no-sort --cycle \
     --prompt='agent > ' \
-    --header='enter jump  ·  1-5 rank  ·  0 unrank  ·  esc close' \
+    --header='enter jump  ·  1-5 rank (3 = unranked)  ·  esc close' \
     --bind="1:execute-silent($SELF set 1 {1})+reload($SELF rows)" \
     --bind="2:execute-silent($SELF set 2 {1})+reload($SELF rows)" \
     --bind="3:execute-silent($SELF clear {1})+reload($SELF rows)" \

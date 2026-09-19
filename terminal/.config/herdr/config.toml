@@ -263,23 +263,31 @@ description = "Go to agent needing attention"
 # and not labelling thirty unranked rows with a number that says nothing keeps
 # the panel readable.
 #
-# alt+shift+g opens the whole ranked list as a popup. It is the view the sidebar
-# cannot give, because the sidebar sorts by space and shows a window, not a
-# ranking. Inside it, 1-5 re-rank the highlighted row and the list redraws, so
-# it doubles as the bulk way to triage a morning's worth of sessions.
+# alt+p opens the ranked list as a popup, and ranking mostly happens in there:
+# highlight a row, press its number. That is why the picker owns the cheap key
+# and the one-pane nudges moved to the prefix layer — the picker shows you what
+# you are changing relative to, which typing a number blind does not.
+#
+# Inside the picker 1-5 re-rank the highlighted row and the list redraws in
+# place, 3 being the unranked middle rather than a real rank.
 #
 # The keybind runs `open`, not `plugin pane open`, because the focusing half has
 # to happen OUTSIDE the popup: focusing from inside returns ok and the API even
 # reports the pane focused, but the session restores the previous focus as the
 # popup closes. `open` launches the popup, waits for its choice, then focuses.
 #
-# alt+g walks the ranking and alt+shift+g opens it, which is the pairing that
-# actually reads: same letter, shift for "show me the list instead of taking me
-# there". The blocked-first sweep moved to prefix+a, since blocked is the rare
-# state here, often zero of thirty.
+# alt+g goes to the TOP of the ranking and stays there. It does not walk down:
+# pressing past the thing you called most important is how a ranking rots into a
+# to-do list. When you are already on it, it says so instead of moving. The
+# queue already ignores working agents, so answering one makes it step aside by
+# itself. To go elsewhere deliberately, use the picker rather than demoting —
+# "not right now" is not the same statement as "less important".
 #
-# alt+p and alt+shift+p now announce the new rank with a herdr notification, so
-# the feedback lands where you are looking instead of in the sidebar.
+# The blocked-first sweep stays on prefix+a, since blocked is the rare state
+# here, often zero of thirty.
+#
+# Rank changes announce themselves with a herdr notification, so the feedback
+# lands where you are looking instead of in the sidebar.
 #
 # COST: alt+p is Claude Code's model picker, which herdr swallows before the pane
 # sees it. Accepted knowingly — that picker is also on /model. Note that
@@ -290,20 +298,20 @@ description = "Go to agent needing attention"
 [[keys.command]]
 key = "alt+p"
 type = "shell"
+command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh open"'
+description = "Ranked agent picker"
+
+[[keys.command]]
+key = "prefix+p"
+type = "shell"
 command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh up"'
 description = "Raise agent priority"
 
 [[keys.command]]
-key = "alt+shift+p"
+key = "prefix+shift+p"
 type = "shell"
 command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh down"'
 description = "Lower agent priority"
-
-[[keys.command]]
-key = "alt+shift+g"
-type = "shell"
-command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh open"'
-description = "Ranked agent picker"
 
 [[keys.command]]
 key = "alt+g"
