@@ -105,6 +105,28 @@ apply() { # apply <pane_id> <priority|"">
   stamp_one "$1" "$2"
 }
 
+# Focus a pane so the CLIENT actually moves.
+#
+# `herdr agent focus` on its own is not enough, and this is the whole reason the
+# keybinds looked dead. agent.focus is NOT in the server's client-shell method
+# allowlist (src/server/client_commands.rs), so it only updates server-side
+# state; the attached client keeps its own idea of focus and overwrites it
+# within a second or two. Measured directly: focus a pane in another space with
+# agent focus and it reads back correct immediately, then reverts.
+#
+# workspace.focus and tab.focus ARE on that allowlist, so they are routed to the
+# client and drag the view along. The trio holds. There is no CLI route to
+# client-side focus of one pane inside a tab, so the pane-level part still rides
+# on agent focus, which is enough once the client is already on the right tab.
+focus_pane() { # focus_pane <pane_id>
+  row=$(herdr pane list | jq -r --arg p "$1" \
+    'first(.result.panes[] | select(.pane_id == $p) | "\(.workspace_id) \(.tab_id)") // empty')
+  [ -n "$row" ] || return 0
+  herdr agent focus "$1" >/dev/null 2>&1 || true
+  herdr workspace focus "${row%% *}" >/dev/null 2>&1 || true
+  herdr tab focus "${row#* }" >/dev/null 2>&1 || true
+}
+
 # The queue goto walks. Highest priority first; within a band, blocked before
 # done, because a blocked agent is usually one keystroke away from running again
 # and costs you seconds rather than a review; then longest-waiting first.
@@ -208,7 +230,8 @@ goto)
     { pane[NR] = $1; if ($4 == "*") here = NR }
     END { if (NR) print pane[(here % NR) + 1] }')
   [ -n "$target" ] || exit 0
-  exec herdr agent focus "$target" >/dev/null
+  log "goto focusing $target"
+  focus_pane "$target"
   ;;
 
 rows)
@@ -258,7 +281,7 @@ open)
       : >"$SELECTION"
       [ -n "$target" ] || exit 0
       log "open: focusing $target"
-      herdr agent focus "$target" >/dev/null
+      focus_pane "$target"
       exit 0
     fi
     sleep 0.1

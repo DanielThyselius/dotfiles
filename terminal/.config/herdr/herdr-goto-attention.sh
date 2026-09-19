@@ -34,4 +34,16 @@ target=$(herdr agent list | jq -r '
 [ -n "$target" ] || exit 0
 [ "${1:-}" = "--dry-run" ] && { echo "$target"; exit 0; }
 
-exec herdr agent focus "$target" >/dev/null
+# `herdr agent focus` alone does NOT move the client. agent.focus is not in the
+# server's client-shell method allowlist, so it updates server state and the
+# attached client overwrites it a second later — which is why this script has
+# been quietly doing nothing. workspace.focus and tab.focus are client-routed,
+# so the three together actually move the view. Same fix as in
+# herdr-agent-priority.sh, which see for the measurement.
+row=$(herdr pane list | jq -r --arg p "$target" \
+  'first(.result.panes[] | select(.pane_id == $p) | "\(.workspace_id) \(.tab_id)") // empty')
+herdr agent focus "$target" >/dev/null 2>&1 || true
+if [ -n "$row" ]; then
+  herdr workspace focus "${row%% *}" >/dev/null 2>&1 || true
+  herdr tab focus "${row#* }" >/dev/null 2>&1 || true
+fi
