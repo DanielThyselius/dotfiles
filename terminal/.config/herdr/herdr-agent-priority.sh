@@ -85,15 +85,37 @@ log() {
 
 # Feedback where the eyes already are. Changing a rank otherwise only shows up
 # in the sidebar, which is the thing you are trying not to have to read.
-notify() { # notify <pane_id> <priority|"">
-  title=$(herdr agent list | jq -r --arg p "$1" \
+#
+# NOT `herdr notification show`. That reports {"shown": true} and then does
+# nothing here, for two compounding reasons: notification.show is not in the
+# server's client-shell method allowlist, and herdr's own terminal notification
+# backend only recognises ghostty, iterm, kitty and wezterm (see
+# src/terminal_notify.rs detect_backend), so under foot it returns false and
+# drops the message. notify-send talks to whatever owns
+# org.freedesktop.Notifications, which under Omarchy 4 is quickshell.
+#
+# The synchronous hint asks the daemon to replace the previous one rather than
+# stack, so holding the key down does not bury the screen in toasts.
+toast() { # toast <title> <body>
+  command -v notify-send >/dev/null 2>&1 || return 0
+  notify-send --app-name=herdr --expire-time=2000 \
+    --hint=string:x-canonical-private-synchronous:herdr-priority \
+    -- "$1" "$2" >/dev/null 2>&1 || true
+}
+
+pane_title() { # pane_title <pane_id>
+  herdr agent list | jq -r --arg p "$1" \
     'first(.result.agents[] | select(.pane_id == $p)
-      | (.terminal_title_stripped // .terminal_title // .pane_id)) // empty')
+      | (.terminal_title_stripped // .terminal_title // .pane_id)) // empty'
+}
+
+notify() { # notify <pane_id> <priority|"">
+  title=$(pane_title "$1")
   [ -n "$title" ] || title="$1"
   if [ -n "$2" ]; then
-    herdr notification show "Priority $2" --body "$title" --position top-right --sound none >/dev/null 2>&1 || true
+    toast "Priority $2" "$title"
   else
-    herdr notification show "Priority cleared" --body "$title" --position top-right --sound none >/dev/null 2>&1 || true
+    toast "Priority cleared" "$title"
   fi
 }
 
@@ -294,30 +316,35 @@ clear)
   ;;
 
 goto)
-  # Always the top of the ranking, never the next one down.
+  # Cycle the TOP BAND, never further down it.
   #
-  # Walking the queue quietly defeated the point: it let you press past the
-  # thing you said mattered most without ever deciding anything. Landing on the
-  # top and staying there forces the decision — answer it, or say it is not
-  # actually your top priority. The queue already excludes working agents, so
-  # answering one is enough to make it step aside on its own.
+  # The band is every waiting agent sharing the highest rank present. Three
+  # priority-5 sessions means alt+g walks those three and wraps; it will not
+  # quietly drop you onto a 4 just because you pressed again. Pressing past the
+  # things you called most important is how a ranking rots into a to-do list.
   #
-  # The escape is the picker, NOT a demotion. "I am not ready for this right
-  # now" is a different statement from "this is less important", and demoting to
-  # get past it would quietly corrupt the ranking into a to-do order.
-  head=$(queue | head -1)
-  [ -n "$head" ] || exit 0
-  target=$(printf '%s\n' "$head" | cut -f1)
-  here=$(printf '%s\n' "$head" | cut -f4)
-  title=$(printf '%s\n' "$head" | cut -f5)
-  if [ "$here" = "*" ]; then
-    log "goto already at the top ($target)"
-    herdr notification show "Top of the ranking" \
-      --body "${title:-$target} · alt+shift+g to pick another" \
-      --position top-right --sound none >/dev/null 2>&1 || true
+  # When the band holds exactly one and you are on it, it says so rather than
+  # moving. The queue already excludes working agents, so answering one makes it
+  # leave the band by itself. The escape is the picker, NOT a demotion: "not
+  # right now" is a different statement from "less important", and demoting to
+  # get past something turns the rank into a schedule.
+  q=$(queue)
+  [ -n "$q" ] || exit 0
+  top=$(printf '%s\n' "$q" | head -1 | cut -f2)
+  band=$(printf '%s\n' "$q" | awk -F'\t' -v p="$top" '$2 == p')
+  count=$(printf '%s\n' "$band" | grep -c '')
+  on_it=$(printf '%s\n' "$band" | cut -f4 | grep -c '^\*$' || true)
+  if [ "$count" -eq 1 ] && [ "$on_it" -eq 1 ]; then
+    head_row=$(printf '%s\n' "$band" | head -1)
+    log "goto already at the top ($(printf '%s\n' "$head_row" | cut -f1))"
+    toast "Top of the ranking" "$(printf '%s\n' "$head_row" | cut -f5) · alt+p to pick another"
     exit 0
   fi
-  log "goto focusing $target"
+  target=$(printf '%s\n' "$band" | awk -F'\t' '
+    { pane[NR] = $1; if ($4 == "*") here = NR }
+    END { if (NR) print pane[(here % NR) + 1] }')
+  [ -n "$target" ] || exit 0
+  log "goto focusing $target (band P$top, $count member(s))"
   focus_pane "$target"
   ;;
 
@@ -333,13 +360,14 @@ pick)
   sel=$(rows | fzf \
     --delimiter='\t' --with-nth=2.. --no-sort --cycle \
     --prompt='agent > ' \
-    --header='enter jump  ·  1-5 rank (3 = unranked)  ·  esc close' \
+    --header='enter jump  ·  1-5 rank (3 = unranked)  ·  alt+p or esc closes' \
     --bind="1:execute-silent($SELF set 1 {1})+reload($SELF rows)" \
     --bind="2:execute-silent($SELF set 2 {1})+reload($SELF rows)" \
     --bind="3:execute-silent($SELF clear {1})+reload($SELF rows)" \
     --bind="4:execute-silent($SELF set 4 {1})+reload($SELF rows)" \
     --bind="5:execute-silent($SELF set 5 {1})+reload($SELF rows)" \
-    --bind="0:execute-silent($SELF clear {1})+reload($SELF rows)" || true)
+    --bind="0:execute-silent($SELF clear {1})+reload($SELF rows)" \
+    --bind='alt-p:abort' || true)
   [ -n "$sel" ] || exit 0
   target=$(printf '%s\n' "$sel" | cut -f1)
   [ -n "$target" ] || exit 0
