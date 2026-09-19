@@ -32,6 +32,10 @@ systemctl --user enable --now tmux.service
 
 ## Notes
 
+- Herdr's agent-priority feature (rank waiting agents 1-5, work from the top)
+  is documented in `terminal/.config/herdr/README.md`, along with several
+  herdr behaviours that are surprising enough to be worth reading before
+  touching anything in that directory.
 - **Never run `stow */`** — that would stow `system/` into `$HOME` and create
   a stray `~/etc`. Stow the four home packages by name.
 - The tmux server runs as a systemd user service so it survives compositor /

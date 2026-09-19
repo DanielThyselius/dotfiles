@@ -67,6 +67,7 @@ STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/herdr"
 STORE="$STATE_DIR/agent-priority"
 SELECTION="$STATE_DIR/agent-priority.selection"
 LOG="$STATE_DIR/agent-priority.log"
+NOTIFY_ID="$STATE_DIR/agent-priority.notify-id"
 
 mkdir -p "$STATE_DIR"
 [ -f "$STORE" ] || : >"$STORE"
@@ -94,13 +95,20 @@ log() {
 # drops the message. notify-send talks to whatever owns
 # org.freedesktop.Notifications, which under Omarchy 4 is quickshell.
 #
-# The synchronous hint asks the daemon to replace the previous one rather than
-# stack, so holding the key down does not bury the screen in toasts.
+# Replacing rather than stacking is done with the spec's own replaces_id, not
+# with the x-canonical-private-synchronous hint. That hint is a notify-osd
+# extension which mako honours and quickshell ignores, so under Omarchy 4 it
+# stacked a fresh toast per keypress. --print-id hands back the id the daemon
+# assigned, --replace-id offers it back next time, and the daemon returning the
+# same id is the confirmation that it replaced in place. Replacing an id that
+# has already expired just makes a new one, which is the behaviour we want.
 toast() { # toast <title> <body>
   command -v notify-send >/dev/null 2>&1 || return 0
-  notify-send --app-name=herdr --expire-time=2000 \
-    --hint=string:x-canonical-private-synchronous:herdr-priority \
-    -- "$1" "$2" >/dev/null 2>&1 || true
+  prev=$(cat "$NOTIFY_ID" 2>/dev/null || true)
+  case $prev in '' | *[!0-9]*) prev=0 ;; esac
+  id=$(notify-send --app-name=herdr --expire-time=2000 --print-id \
+    --replace-id="$prev" -- "$1" "$2" 2>/dev/null) || return 0
+  case $id in '' | *[!0-9]*) ;; *) printf '%s\n' "$id" >"$NOTIFY_ID" ;; esac
 }
 
 pane_title() { # pane_title <pane_id>
