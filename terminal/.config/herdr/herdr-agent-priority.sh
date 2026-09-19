@@ -6,7 +6,8 @@
 #   herdr-agent-priority.sh set <1-5> [pane_id]
 #   herdr-agent-priority.sh clear [pane_id]
 #   herdr-agent-priority.sh goto              focus the next highest-priority waiting agent
-#   herdr-agent-priority.sh pick              ranked picker, for the popup plugin pane
+#   herdr-agent-priority.sh open              open the picker and act on its choice
+#   herdr-agent-priority.sh pick              the picker itself, run inside the popup
 #   herdr-agent-priority.sh rows              the picker's rows, also fzf's reload source
 #   herdr-agent-priority.sh stamp             re-apply every stored priority (startup hook)
 #   herdr-agent-priority.sh list              show the queue goto walks, in order
@@ -48,11 +49,23 @@ SOURCE=agent-priority
 DEFAULT=3
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/herdr"
 STORE="$STATE_DIR/agent-priority"
+SELECTION="$STATE_DIR/agent-priority.selection"
+LOG="$STATE_DIR/agent-priority.log"
 
 mkdir -p "$STATE_DIR"
 [ -f "$STORE" ] || : >"$STORE"
 
 die() { echo "$*" >&2; exit 2; }
+
+# Every invocation leaves a line. Keybind commands are spawned by the server
+# with no terminal attached, so a failure here is otherwise completely silent —
+# which is exactly how a missing symlink went unnoticed for a day.
+log() {
+  printf '%s %s\n' "$(date '+%m-%d %H:%M:%S')" "$*" >>"$LOG" 2>/dev/null || return 0
+  if [ "$(wc -l <"$LOG" 2>/dev/null || echo 0)" -gt 200 ]; then
+    tail -n 100 "$LOG" >"$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"
+  fi
+}
 
 focused_pane() {
   herdr agent list | jq -r 'first(.result.agents[] | select(.focused) | .pane_id) // empty'
@@ -151,6 +164,7 @@ SELF="$HOME/.config/herdr/herdr-agent-priority.sh"
 cmd=${1:-}
 [ -n "$cmd" ] || die "usage: $0 {up|down|set <1-5>|clear|goto|pick|rows|stamp|list} [pane_id]"
 shift
+log "run $cmd $* (herdr=$(command -v herdr || echo MISSING))"
 
 case $cmd in
 up | down)
@@ -219,12 +233,38 @@ pick)
   [ -n "$sel" ] || exit 0
   target=$(printf '%s\n' "$sel" | cut -f1)
   [ -n "$target" ] || exit 0
-  # Focus straight from inside the popup. A popup is not a Herdr pane and does
-  # not take part in focus at all, so the change lands on the session underneath
-  # and survives the popup closing. Backgrounding this instead does NOT work:
-  # exiting is what closes the popup, and the orphan is SIGHUPped with the pty
-  # before a delay elapses.
-  herdr agent focus "$target" >/dev/null
+  # Hand the choice to `open` rather than focusing here. Focusing from inside
+  # the popup looks like it works — the call returns ok and the API reports the
+  # pane focused — but the session puts focus back where it was as the popup
+  # closes. Measured, not assumed. Detaching the call does not help either: the
+  # popup's pty dies with it and takes any orphan along.
+  log "pick chose $target"
+  printf '%s\n' "$target" >"$SELECTION.tmp" && mv "$SELECTION.tmp" "$SELECTION"
+  ;;
+
+open)
+  # Runs from the keybind, so it is a child of the server rather than of the
+  # popup, and outlives it. Opens the picker, waits for a choice to appear, then
+  # focuses once the popup is gone and the focus will stick.
+  : >"$SELECTION"
+  herdr plugin pane open --plugin agent-priority --entrypoint picker >/dev/null || {
+    log "open: plugin pane open failed"
+    exit 0
+  }
+  i=0
+  while [ "$i" -lt 600 ]; do
+    if [ -s "$SELECTION" ]; then
+      target=$(cat "$SELECTION")
+      : >"$SELECTION"
+      [ -n "$target" ] || exit 0
+      log "open: focusing $target"
+      herdr agent focus "$target" >/dev/null
+      exit 0
+    fi
+    sleep 0.1
+    i=$((i + 1))
+  done
+  log "open: no choice within 60s"
   ;;
 
 stamp)

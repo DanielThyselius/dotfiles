@@ -239,7 +239,7 @@ description = "Previous space (tmux C-M-S-Tab)"
 # stay clear.
 
 [[keys.command]]
-key = "alt+g"
+key = "prefix+a"
 type = "shell"
 command = 'sh -c "$HOME/.config/herdr/herdr-goto-attention.sh"'
 description = "Go to agent needing attention"
@@ -268,10 +268,21 @@ description = "Go to agent needing attention"
 # ranking. Inside it, 1-5 re-rank the highlighted row and the list redraws, so
 # it doubles as the bulk way to triage a morning's worth of sessions.
 #
+# The keybind runs `open`, not `plugin pane open`, because the focusing half has
+# to happen OUTSIDE the popup: focusing from inside returns ok and the API even
+# reports the pane focused, but the session restores the previous focus as the
+# popup closes. `open` launches the popup, waits for its choice, then focuses.
+#
+# alt+g walks the ranking. It used to be the blocked-first sweep, which moved to
+# prefix+a — blocked is the rare state here (often zero of thirty), so the key
+# that gets pressed all day should be the one for the ranking.
+#
 # COST: alt+p is Claude Code's model picker, which herdr swallows before the pane
-# sees it. Accepted knowingly — that picker is also on /model. alt+shift+g and
-# alt+shift+p are free, and prefix+p is one of the few prefix letters herdr
-# leaves unbound.
+# sees it. Accepted knowingly — that picker is also on /model. Note that
+# alt+shift+p only survives the modern CSI-u key encoding: in the legacy one it
+# is ESC P, which is also how a DCS control string starts, and herdr's input
+# parser waits for a terminator that never arrives. It works here because foot
+# and herdr negotiate the kitty keyboard protocol.
 [[keys.command]]
 key = "alt+p"
 type = "shell"
@@ -287,11 +298,11 @@ description = "Lower agent priority"
 [[keys.command]]
 key = "prefix+p"
 type = "shell"
-command = 'sh -c "herdr plugin pane open --plugin agent-priority --entrypoint picker"'
+command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh open"'
 description = "Ranked agent picker"
 
 [[keys.command]]
-key = "alt+shift+g"
+key = "alt+g"
 type = "shell"
 command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh goto"'
 description = "Go to next highest-priority agent"
