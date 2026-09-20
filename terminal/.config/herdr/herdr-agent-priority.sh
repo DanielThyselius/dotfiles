@@ -368,14 +368,15 @@ pick)
   sel=$(rows | fzf \
     --delimiter='\t' --with-nth=2.. --no-sort --cycle \
     --prompt='agent > ' \
-    --header='enter jump  ·  1-5 rank (3 = unranked)  ·  alt+p or esc closes' \
+    --header='enter jump  ·  1-5 rank (3 = unranked)  ·  alt+p/alt+shift+p nudge  ·  esc close' \
     --bind="1:execute-silent($SELF set 1 {1})+reload($SELF rows)" \
     --bind="2:execute-silent($SELF set 2 {1})+reload($SELF rows)" \
     --bind="3:execute-silent($SELF clear {1})+reload($SELF rows)" \
     --bind="4:execute-silent($SELF set 4 {1})+reload($SELF rows)" \
     --bind="5:execute-silent($SELF set 5 {1})+reload($SELF rows)" \
     --bind="0:execute-silent($SELF clear {1})+reload($SELF rows)" \
-    --bind='alt-p:abort' || true)
+    --bind="alt-p:execute-silent($SELF up {1})+reload($SELF rows)" \
+    --bind="alt-P:execute-silent($SELF down {1})+reload($SELF rows)" || true)
   [ -n "$sel" ] || exit 0
   target=$(printf '%s\n' "$sel" | cut -f1)
   [ -n "$target" ] || exit 0

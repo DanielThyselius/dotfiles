@@ -1,0 +1,24 @@
+id = "pane-mover"
+name = "Pane mover"
+version = "1.0.0"
+description = "Pick any tab in any space and send the focused pane there"
+min_herdr_version = "0.8.0"
+platforms = ["linux"]
+
+# A plugin with no events, no startup hook and no actions: it exists purely to
+# own a popup. Opening a session-modal popup has exactly two routes — a
+# `keys.command` with type = "popup", or a plugin pane entrypoint with
+# placement = "popup" — and the first one cannot work here, because a choice
+# made inside a popup has to be ACTED ON after the popup closes or the focus
+# that follows the moved pane is thrown away. See the script header.
+#
+# The keybind (prefix+m) runs the script's `open`, which opens this pane and
+# waits. Nothing invokes the plugin directly.
+
+[[panes]]
+id = "picker"
+title = "Move pane"
+placement = "popup"
+width = "80%"
+height = "60%"
+command = ["sh", "-c", "$HOME/.config/herdr/herdr-move-pane-picker.sh pick"]

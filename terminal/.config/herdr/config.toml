@@ -263,13 +263,14 @@ description = "Go to agent needing attention"
 # and not labelling thirty unranked rows with a number that says nothing keeps
 # the panel readable.
 #
-# alt+p opens the ranked list as a popup, and ranking mostly happens in there:
-# highlight a row, press its number. That is why the picker owns the cheap key
-# and the one-pane nudges moved to the prefix layer — the picker shows you what
-# you are changing relative to, which typing a number blind does not.
+# alt+p raises the focused session, alt+shift+p lowers it, and prefix+p opens
+# the ranked list as a popup. Nudging one pane is the thing done by reflex while
+# reading it, so it keeps the cheap key; opening a whole view is deliberate, so
+# it sits on the prefix layer.
 #
-# Inside the picker 1-5 re-rank the highlighted row and the list redraws in
-# place, 3 being the unranked middle rather than a real rank.
+# Inside the picker the same two keys nudge the HIGHLIGHTED row, so alt+p means
+# one thing everywhere. 1-5 set a rank outright and the list redraws in place,
+# 3 being the unranked middle rather than a real rank.
 #
 # The keybind runs `open`, not `plugin pane open`, because the focusing half has
 # to happen OUTSIDE the popup: focusing from inside returns ok and the API even
@@ -296,19 +297,19 @@ description = "Go to agent needing attention"
 # parser waits for a terminator that never arrives. It works here because foot
 # and herdr negotiate the kitty keyboard protocol.
 [[keys.command]]
-key = "alt+p"
+key = "prefix+p"
 type = "shell"
 command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh open"'
 description = "Ranked agent picker"
 
 [[keys.command]]
-key = "prefix+p"
+key = "alt+p"
 type = "shell"
 command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh up"'
 description = "Raise agent priority"
 
 [[keys.command]]
-key = "prefix+shift+p"
+key = "alt+shift+p"
 type = "shell"
 command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh down"'
 description = "Lower agent priority"
@@ -365,6 +366,30 @@ key = "ctrl+alt+shift+right"
 type = "shell"
 command = 'sh -c "$HOME/.config/herdr/herdr-move-pane-tab.sh right"'
 description = "Move pane to the tab on the right"
+
+# Arbitrary destination, when the arrows are the wrong tool: ~30 tabs across ten
+# spaces is eleven presses of ctrl+alt+shift+right away, and the arrows cannot
+# cross a space at all. prefix+m opens an fzf popup over every tab in every
+# space, plus a "new tab" row per space and a "new space" row, and sends the
+# focused pane wherever you pick. enter splits right, alt+enter splits down.
+#
+# NOT prefix+g. That is herdr's own navigator and the obvious home for this, but
+# it is focus-only: no move verb, no config action to bind, and overriding the
+# key would cost the navigator itself. prefix+m is free — nothing in this file
+# or tmux.conf claims it, and herdr's defaults use prefix+minus for
+# split_horizontal, not prefix+m.
+#
+# type = "shell", not "popup", even though what it opens IS a popup. The popup
+# has to be opened by the pane-mover plugin so that this command — a child of
+# the server, outliving the popup — can perform the move once the popup is gone.
+# A move made from inside the popup lands, but the focus that should follow the
+# pane is reverted as the popup closes. Same finding as the agent picker.
+
+[[keys.command]]
+key = "prefix+m"
+type = "shell"
+command = 'sh -c "$HOME/.config/herdr/herdr-move-pane-picker.sh open"'
+description = "Move pane to any tab (picker)"
 
 
 # Flipping a two-pane tab between side-by-side and stacked. tmux does it with

@@ -8,7 +8,9 @@ day goes to whoever happened to finish last. A number you set once, when the
 session starts, lets the work be chosen instead of serviced. Priority 1 work
 never getting reached is the intent, not a bug — it is the cue to close it.
 
-Everything here runs on stock herdr APIs. No fork is involved.
+Everything here runs on stock herdr APIs — no fork is needed to build it. It
+does lean on one fork-only setting to stay *accurate*, though: see the note at
+the end of "What alt+g does".
 
 ## Keys
 
@@ -16,15 +18,14 @@ The prefix is `alt+space`.
 
 | Key | Does |
 | --- | --- |
-| `alt+p` | Open the ranked picker. Pressing it again closes it. |
+| `alt+p` | Raise the focused session's rank one step. |
+| `alt+shift+p` | Lower it one step. |
+| `prefix+p` | Open the ranked picker. |
 | `alt+g` | Go to the top of the ranking, cycling within the top band. |
-| `prefix+p` | Raise the focused session's rank one step. |
-| `prefix+shift+p` | Lower it one step. |
 | `prefix+a` | Unrelated older sweep: jump to whoever is blocked, rank ignored. |
 
-Ranking mostly happens inside the picker, which is why it owns the cheap key.
-The picker shows what you are ranking things *relative to*, which typing a
-number blind does not.
+Nudging one session is done by reflex while reading it, so it keeps the cheap
+key. Opening a whole view is deliberate, so it sits on the prefix layer.
 
 ## The scale
 
@@ -46,9 +47,10 @@ sidebar. Type to filter on the session title.
 | Key | Does |
 | --- | --- |
 | `enter` | Jump to the highlighted session. |
-| `1`–`5` | Rank it, in place. The list redraws and the row moves. |
+| `1`–`5` | Rank it outright. The list redraws and the row moves. |
 | `3` | Same thing: unranked. |
-| `alt+p`, `esc` | Close. |
+| `alt+p`, `alt+shift+p` | Nudge it up or down, same as outside the picker. |
+| `esc` | Close. |
 
 ## What alt+g does
 
@@ -69,6 +71,16 @@ past something turns the rank into a schedule within a week.
 Only `blocked` and `done` agents are candidates. Working agents want nothing,
 and idle ones have been dealt with. Within a rank the order is blocked first,
 then longest-waiting, which is deterministic so the top does not wander.
+
+**This is why the fork still earns its keep.** `ui.done_acknowledgement =
+"input"` is a fork-only setting that keeps a finished session marked `done`
+until you actually type into it. On stock herdr, merely focusing a pane
+acknowledges it and flips it to `idle` — which would mean `alt+g` takes you to
+the top of the band and, by that very act, drops it out of the queue. Holding
+at the top would collapse: every press would land somewhere new, and the
+sessions you were trying not to lose track of would quietly leave the list.
+Going back to the packaged binary means giving that up, or finding another way
+to keep `done` sticky.
 
 ## How it is wired
 
