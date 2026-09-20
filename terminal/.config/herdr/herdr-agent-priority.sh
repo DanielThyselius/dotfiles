@@ -266,15 +266,28 @@ queue() {
 # which is the question "what should I be doing" actually needs. Ranked first,
 # then blocked, done, working, idle within a band.
 #
-# Field 1 is the pane id and stays hidden in fzf; field 2 is the whole display
-# line, pre-padded here because jq cannot pad.
+# Field 1 is the pane id and stays hidden in fzf; everything after it is the
+# display line. jq does the truncating, because its string slicing counts
+# codepoints and will not cut a multi-byte character in half; awk does the
+# padding and the colour.
 rows() {
-  herdr agent list | jq -r --argjson def "$DEFAULT" '
+  # Workspace and tab labels are not on the agent record, only their ids, so
+  # they come from two extra list calls and get joined in jq. Three API calls
+  # per reload, each a few milliseconds; the picker redraws rarely enough that
+  # readability is worth more than the round trips.
+  ws=$(herdr workspace list |
+    jq -c '[.result.workspaces[] | {key: .workspace_id, value: (.label // .workspace_id)}] | from_entries')
+  tabs=$(herdr tab list |
+    jq -c '[.result.tabs[] | {key: .tab_id, value: (.label // .tab_id)}] | from_entries')
+
+  herdr agent list |
+    jq -r --argjson def "$DEFAULT" --argjson ws "$ws" --argjson tabs "$tabs" '
     [ .result.agents[]
       | { pane_id,
           focused,
           status: .agent_status,
-          workspace: .workspace_id,
+          workspace: (($ws[.workspace_id] // .workspace_id) | .[0:14]),
+          tab: (($tabs[.tab_id] // .tab_id) | .[0:18]),
           title: (.terminal_title_stripped // .terminal_title // ""),
           ranked: (((.tokens.pri // "") | length) > 0),
           seq: .state_change_seq,
@@ -290,10 +303,21 @@ rows() {
         (if .ranked then "P\(.pri)" else "--" end),
         .status,
         .workspace,
+        .tab,
         (if .focused then ">" else " " end),
         .title ]
     | @tsv' |
-    awk -F'\t' '{ printf "%s\t%s %-2s %-7s %-3s %s\n", $1, $5, $2, $3, $4, $6 }'
+    awk -F'\t' '
+      BEGIN { R = "\033[0m"; B = "\033[1m"; D = "\033[2m" }
+      {
+        if ($3 == "blocked")      sc = "\033[31m"
+        else if ($3 == "done")    sc = "\033[36m"
+        else if ($3 == "working") sc = "\033[33m"
+        else                      sc = D
+        pc = ($2 == "--") ? D : B
+        printf "%s\t%s%s%s %s%-2s%s %s%-7s%s %s%-14s%s %s%-18s%s %s\n", \
+          $1, B, $6, R, pc, $2, R, sc, $3, R, D, $4, R, D, $5, R, $7
+      }'
 }
 
 SELF="$HOME/.config/herdr/herdr-agent-priority.sh"
@@ -380,7 +404,7 @@ pick)
   # is both the view and the way to set a priority without leaving it.
   command -v fzf >/dev/null || die "pick needs fzf"
   sel=$(rows | fzf \
-    --delimiter='\t' --with-nth=2.. --no-sort --cycle \
+    --delimiter='\t' --with-nth=2.. --no-sort --cycle --ansi \
     --prompt='agent > ' \
     --header='enter jump  ·  1-5 rank (3 = unranked)  ·  alt+p/alt+shift+p nudge  ·  esc close' \
     --bind="1:execute-silent($SELF set 1 {1})+reload($SELF rows)" \

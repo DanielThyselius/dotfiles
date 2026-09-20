@@ -41,7 +41,13 @@ changes replace that notification in place rather than stacking.
 ## The picker
 
 An `fzf` list inside a herdr popup, showing every agent in the same order as the
-sidebar. Type to filter on the session title.
+sidebar. Columns are: focus marker, rank, status, workspace, tab, session title.
+Typing filters across all of them, so a workspace name narrows to one project
+and a tab name to one slice of it.
+
+Status carries herdr's own colour language — red blocked, teal done, yellow
+working, dim idle — and the workspace and tab columns are dimmed so the eye
+lands on the rank and the title.
 
 | Key | Does |
 | --- | --- |
