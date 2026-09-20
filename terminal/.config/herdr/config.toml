@@ -136,15 +136,9 @@ switch_workspace    = "ctrl+alt+1..9"
 previous_agent      = "ctrl+alt+up"
 next_agent          = "ctrl+alt+down"
 
-# Toggle the focused agent between done (teal) and idle. Dismisses a finished
-# agent without typing into it, and flips an idle one back to done as a "look at
-# this later" flag. Fork-only (see done_acknowledgement under [ui]); the packaged
-# binary reports it as an unknown key. The same toggle is a click on the state
-# icon in the agent's sidebar row.
-#
-# alt+a verified free: ghostty binds nothing on it, Hyprland's A binds are all
-# SUPER combos, tmux.conf's M-a (next-window) was not carried over.
-acknowledge_agent   = "alt+a"
+# NOTE: acknowledge_agent used to live here, bound to alt+a, as part of the fork
+# at ~/Source/herdr. The fork was dropped on 2026-09-20 — see the [ui] section
+# below — so alt+a is free again.
 
 # Third digit layer: alt+N = tab N, ctrl+alt+N = space N, prefix+N = agent N.
 # Free because switch_tab was moved off herdr's prefix+1..9 default onto alt+1..9.
@@ -449,17 +443,20 @@ show_agent_labels_on_pane_borders = true
 # state_icon is left unstyled to preserve its state-dependent colour.
 agent_panel_sort = "priority"
 
-# Keep a finished agent teal ("done") until you actually type into its pane.
-# Stock herdr clears it as soon as the pane is focused or even just visible in
-# the tab you switch to, which loses agents when tabbing through. This option
-# only exists in the fork at ~/Source/herdr (branch done-acknowledgement-on-input,
-# installed to ~/.local/bin/herdr); the packaged binary reports it as an unknown
-# key and ignores it. Proposed upstream via a Discussion, see herdr issue #2718.
-done_acknowledgement = "input"
-
-# Fork-only companion: the same coloured status dot the sidebar uses, in front
-# of each pane's border label, so the state is readable on the pane itself.
-pane_border_status = true
+# THE FORK IS GONE (2026-09-20). ui.done_acknowledgement = "input" and
+# ui.pane_border_status lived here and only existed in the fork at
+# ~/Source/herdr (branch done-acknowledgement-on-input, still on GitHub). Stock
+# herdr clears the teal "done" state as soon as a pane is focused, which is what
+# the fork was built to stop, because tabbing past an agent lost track of it.
+#
+# What replaced it: the alt+g queue now includes idle agents, so it means
+# "everything of yours that is not currently running" and no longer cares
+# whether a pane has been acknowledged. Losing the distinction costs the
+# ordering a little nuance — unseen work still sorts ahead of seen work within a
+# rank — but it no longer costs a whole build to maintain.
+#
+# What was actually lost: pane_border_status, the coloured state dot in front of
+# each pane's border label. There is no stock equivalent.
 # Neither $idx nor $pri is a herdr built-in — both are custom metadata tokens.
 # $idx is stamped by herdr-number-sidebar.sh and holds the digit that focus_agent
 # (prefix+1..9) responds to, so the panel reads as its own keymap. $pri is

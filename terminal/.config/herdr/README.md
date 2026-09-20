@@ -8,9 +8,8 @@ day goes to whoever happened to finish last. A number you set once, when the
 session starts, lets the work be chosen instead of serviced. Priority 1 work
 never getting reached is the intent, not a bug — it is the cue to close it.
 
-Everything here runs on stock herdr APIs — no fork is needed to build it. It
-does lean on one fork-only setting to stay *accurate*, though: see the note at
-the end of "What alt+g does".
+Everything here runs on stock herdr APIs. The fork that used to live in
+`~/Source/herdr` was dropped on 2026-09-20; see "Why there is no fork" below.
 
 ## Keys
 
@@ -68,19 +67,27 @@ To go somewhere else deliberately, use the picker rather than demoting. "Not
 right now" is a different statement from "less important", and demoting to get
 past something turns the rank into a schedule within a week.
 
-Only `blocked` and `done` agents are candidates. Working agents want nothing,
-and idle ones have been dealt with. Within a rank the order is blocked first,
-then longest-waiting, which is deterministic so the top does not wander.
+Everything except `working` is a candidate: blocked, done and idle. Within a
+rank the order is blocked first, then done, then idle, then longest-waiting,
+which is deterministic so the top does not wander.
 
-**This is why the fork still earns its keep.** `ui.done_acknowledgement =
-"input"` is a fork-only setting that keeps a finished session marked `done`
-until you actually type into it. On stock herdr, merely focusing a pane
-acknowledges it and flips it to `idle` — which would mean `alt+g` takes you to
-the top of the band and, by that very act, drops it out of the queue. Holding
-at the top would collapse: every press would land somewhere new, and the
-sessions you were trying not to lose track of would quietly leave the list.
-Going back to the packaged binary means giving that up, or finding another way
-to keep `done` sticky.
+## Why there is no fork
+
+The queue used to exclude `idle`, on the reasoning that an idle agent had
+already been dealt with. That was only true while a fork kept `done` sticky
+until you typed into a pane (`ui.done_acknowledgement = "input"`). On stock
+herdr, merely focusing a pane acknowledges it and flips `done` to `idle`, so
+excluding idle meant *visiting* a session silently removed it from the ranking
+— the exact losing-track problem this feature exists to solve.
+
+Including idle makes the queue mean "everything of yours that is not currently
+running", which does not depend on the acknowledgement rule at all. The
+ordering keeps the nuance as a tiebreak rather than a filter: unseen work still
+sorts ahead of seen work inside a rank.
+
+That let the fork go. What went with it: `ui.pane_border_status`, the coloured
+state dot in front of each pane's border label, which has no stock equivalent.
+The branch is still on GitHub if it is ever wanted back.
 
 ## How it is wired
 

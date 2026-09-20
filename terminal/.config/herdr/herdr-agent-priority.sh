@@ -219,9 +219,20 @@ focus_pane() { # focus_pane <pane_id>
   herdr tab focus "${row#* }" >/dev/null 2>&1 || true
 }
 
-# The queue goto walks. Highest priority first; within a band, blocked before
-# done, because a blocked agent is usually one keystroke away from running again
-# and costs you seconds rather than a review; then longest-waiting first.
+# The queue goto walks. Highest priority first; within a band, blocked first
+# (one keystroke away from running again, so it costs you seconds rather than a
+# review), then done, then idle; then longest-waiting.
+#
+# IDLE IS IN THE QUEUE ON PURPOSE. It used to be excluded on the grounds that an
+# idle agent had already been dealt with, which was only true while the fork
+# kept `done` sticky until you typed. On stock herdr, merely focusing a pane
+# acknowledges it and flips done to idle — so excluding idle meant visiting a
+# session silently removed it from the ranking, which is the losing-track
+# problem this whole thing exists to solve. Including it makes the queue mean
+# "everything of yours that is not currently running", which does not depend on
+# the acknowledgement rule at all, and let the fork be dropped.
+#
+# Only `working` is excluded now. A working agent genuinely wants nothing.
 #
 # That last key is load-bearing, not decoration. Most agents sit at the default
 # rank, so without a deterministic tiebreak the head of the queue shuffles as
@@ -234,14 +245,17 @@ focus_pane() { # focus_pane <pane_id>
 queue() {
   herdr agent list | jq -r --argjson def "$DEFAULT" '
     [ .result.agents[]
-      | select(.agent_status == "blocked" or .agent_status == "done")
+      | select(.agent_status == "blocked" or .agent_status == "done"
+               or .agent_status == "idle")
       | { pane_id,
           focused,
           status: .agent_status,
           title: (.terminal_title_stripped // .terminal_title // ""),
           seq: .state_change_seq,
           pri: (((.tokens.pri // "") | ltrimstr("P") | tonumber?) // $def) } ]
-    | sort_by(-.pri, (if .status == "blocked" then 0 else 1 end), .seq)
+    | sort_by(-.pri,
+        (if .status == "blocked" then 0 elif .status == "done" then 1 else 2 end),
+        .seq)
     | .[]
     | [ .pane_id, (.pri | tostring), .status, (if .focused then "*" else "-" end), .title ]
     | @tsv'
@@ -332,8 +346,8 @@ goto)
   # things you called most important is how a ranking rots into a to-do list.
   #
   # When the band holds exactly one and you are on it, it says so rather than
-  # moving. The queue already excludes working agents, so answering one makes it
-  # leave the band by itself. The escape is the picker, NOT a demotion: "not
+  # moving. Answering an agent starts it working, and working is the one status
+  # the queue excludes, so it leaves the band by itself. The escape is the picker, NOT a demotion: "not
   # right now" is a different statement from "less important", and demoting to
   # get past something turns the rank into a schedule.
   q=$(queue)
