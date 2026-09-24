@@ -26,3 +26,7 @@ vim.keymap.set("n", "<C-S-Left>", function() push_border("left") end, { desc = "
 vim.keymap.set("n", "<C-S-Right>", function() push_border("right") end, { desc = "Push Window Border Right" })
 vim.keymap.set("n", "<C-S-Up>", function() push_border("up") end, { desc = "Push Window Border Up" })
 vim.keymap.set("n", "<C-S-Down>", function() push_border("down") end, { desc = "Push Window Border Down" })
+
+-- Ctrl+Tab / Ctrl+Shift+Tab = H/L (LazyVim's previous/next buffer in the bar)
+vim.keymap.set("n", "<C-Tab>", "L", { remap = true, desc = "Next Buffer" })
+vim.keymap.set("n", "<C-S-Tab>", "H", { remap = true, desc = "Prev Buffer" })
