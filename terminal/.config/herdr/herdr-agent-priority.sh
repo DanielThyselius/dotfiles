@@ -503,13 +503,10 @@ rows() {
   tabs=$(herdr tab list |
     jq -c '[.result.tabs[] | {key: .tab_id, value: (.label // .tab_id)}] | from_entries')
 
-  # Same failing-open read as queue(): a failing snoozes_active must not
-  # abort the reload, it should just mean nothing shows as snoozed. from_entries
-  # keeps the LAST entry for a duplicate key, which would silently pick the
-  # wrong wake time if the store ever held two lines for one pane -- it can't,
-  # because both writers (store_set-alike snooze_step and prune) always drop a
-  # pane's existing line before appending its new one, so at most one line per
-  # pane ever reaches this map.
+  # Fail open like queue(): a failed snooze read just marks nothing, rather
+  # than emptying the picker. snooze_step keeps one line per pane; only a hand
+  # edit can leave two (prune keeps them as they are), and from_entries then
+  # shows the last.
   ids=$(snoozes_active) || { log "rows: snooze read failed, not marking"; ids=''; }
   snoozed=$(printf '%s\n' "$ids" | jq -R -s -c \
     '[split("\n")[] | select(length > 0) | split("\t") | {key: .[0], value: (.[1] | tonumber)}] | from_entries')
