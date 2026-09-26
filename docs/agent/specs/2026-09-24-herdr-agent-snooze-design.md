@@ -158,8 +158,7 @@ The header usage block in the script gains `snooze [pane_id]`.
 - No focused agent: exit 0 silently, as `up`/`down` do.
 - Explicit pane id: validated against `herdr agent list` before any state is
   written (`target_pane` returns an explicit id unchecked today). An id that is
-  not a live agent exits 0 without writing. The validation reuses the list call
-  already needed for the toast title, so it costs nothing extra.
+  not a live agent exits 0 without writing. This costs one extra `herdr agent list` call (a few milliseconds) per invocation with an explicit id.
 - Missing or unreadable snooze file: treated as empty (created on first write,
   like the rank store).
 - Malformed lines — non-numeric epoch, or a step outside {5, 30, 120, 240} —

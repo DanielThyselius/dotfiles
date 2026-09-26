@@ -98,4 +98,9 @@ check "metadata stamps land in store-write order (4 5 5)" \
   "4 5 5" \
   "$(grep -o 'prisort=[0-9]*' "$FIXTURE_DIR/metadata.log" | cut -d= -f2 | tr '\n' ' ' | sed 's/ $//')"
 
+# --- explicit pane ids are validated -----------------------------------------
+setup
+run up w9:nope
+check "up on an unknown pane writes nothing" "" "$(cat "$(state agent-priority)")"
+
 exit "$failed"

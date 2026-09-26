@@ -166,13 +166,16 @@ focused_pane() {
   herdr agent list | jq -r 'first(.result.agents[] | select(.focused) | .pane_id) // empty'
 }
 
-# Resolve the pane a set/up/down/clear applies to: explicit argument, else the
-# focused one. Read from the agent list rather than $HERDR_PANE_ID so the same
+# Resolve the pane a command applies to: explicit argument, else the focused
+# one. An explicit id is checked against the live agent list and resolves to
+# nothing if it is not there, so a stale or mistyped id can never put a line in
+# a store. Read from the agent list rather than $HERDR_PANE_ID so the same
 # script works from a keybind, a plugin action and a shell inside some other
 # pane.
 target_pane() {
   if [ -n "${1:-}" ]; then
-    printf '%s\n' "$1"
+    herdr agent list | jq -r --arg p "$1" \
+      'first(.result.agents[] | select(.pane_id == $p) | .pane_id) // empty'
   else
     focused_pane
   fi
