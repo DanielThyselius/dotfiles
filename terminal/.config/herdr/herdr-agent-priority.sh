@@ -259,10 +259,21 @@ snooze_step() { # snooze_step <pane_id>; run under `locked`; sets $step and $wak
   rm -f "$snap"
 }
 
-# Startup cleanup, run under `locked`: re-project the rank store onto metadata
-# tokens (a restore wiped them), drop entries whose pane is gone from both
-# stores, and drop expired or malformed snoozes, so neither file can grow
-# without bound.
+# Startup cleanup, run under `locked`: drop entries whose pane is gone from
+# both stores, drop expired or malformed snoozes so that file cannot grow
+# without bound, and re-project the rank store onto metadata tokens (a
+# restore wiped them).
+#
+# GUARDED ON THE LIVE LIST. `herdr pane list` can fail outright (herdr not up
+# yet, "server_not_running") or come back with no panes, and this hook fires
+# on every pane.agent_detected — far more often than a real restart. Without
+# this guard, either case makes `live` empty, which reads as "every pane is
+# gone": the rank store and the snooze store would both be wiped, and the
+# reconcile below would then clear every visible rank too, all silently
+# (exit 0, nothing logged). So both the raw call and the parse are checked
+# before anything is touched, and a failure of either returns before either
+# store is rewritten and before the reconcile runs — it depends on the same
+# live list for the same reason.
 #
 # The prisort reconcile (every agent needs the hidden sort token or it falls
 # off the bottom of the panel) runs in here too, not after `locked prune`
@@ -271,13 +282,24 @@ snooze_step() { # snooze_step <pane_id>; run under `locked`; sets $step and $wak
 # concurrent `up`/`set`/`clear` could land between this read and its
 # stamp_one, and this stale restamp would overwrite that fresher write.
 prune() {
-  live=$(herdr pane list | jq -r '.result.panes[].pane_id' | sort -u)
+  list=$(herdr pane list) || { log "prune: pane list failed, not pruning"; return 0; }
+  ids=$(printf '%s\n' "$list" | jq -er '.result.panes[].pane_id') || {
+    log "prune: no live panes parsed, not pruning"
+    return 0
+  }
+  live=$(printf '%s\n' "$ids" | sort -u)
+
+  # Pure file rewrite: drop lines for gone panes. Restamping every surviving
+  # line unconditionally used to happen here too, but that made every ranked
+  # pane cost a report-metadata call on every stamp regardless of whether its
+  # token already matched. The reconcile loop below already restamps any live
+  # agent whose prisort disagrees with the store (stamp_one writes pri and
+  # prisort together), so it alone is enough to keep tokens correct.
   tmp=$(mktemp "$STORE.XXXXXX")
   while IFS='	' read -r pane pri; do
     [ -n "$pane" ] || continue
     if printf '%s\n' "$live" | grep -qx "$pane"; then
       printf '%s\t%s\n' "$pane" "$pri" >>"$tmp"
-      stamp_one "$pane" "$pri"
     fi
   done <"$STORE"
   mv "$tmp" "$STORE"
@@ -297,13 +319,15 @@ prune() {
     done >"$tmp"
   mv "$tmp" "$SNOOZE"
 
-  herdr agent list |
+  alist=$(herdr agent list) || { log "prune: agent list failed, not reconciling"; return 0; }
+  printf '%s\n' "$alist" |
     jq -r '.result.agents[] | "\(.pane_id)\t\(.tokens.prisort // "")"' |
     while IFS="$(printf '\t')" read -r pane cur; do
       [ -n "$pane" ] || continue
       want=$(stored "$pane")
       [ -n "$want" ] || want=$DEFAULT
-      [ "$cur" = "$want" ] || stamp_one "$pane" "$(stored "$pane")"
+      [ "$cur" = "$want" ] || stamp_one "$pane" "$(stored "$pane")" ||
+        log "prune: stamp failed: $pane"
     done
 }
 

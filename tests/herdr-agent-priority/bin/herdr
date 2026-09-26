@@ -9,7 +9,20 @@ printf '%s\n' "$*" >>"$F/calls.log"
 case "$1 ${2:-}" in
 "agent list") cat "$F/agents.json" ;;
 "pane list")
-  jq '{result: {panes: [.result.agents[] | {pane_id, workspace_id, tab_id}]}}' "$F/agents.json" ;;
+  # Test seam for the prune() guard: three ways a real `pane list` goes wrong.
+  # exit    - the real CLI's failure mode: nothing usable on stdout, exit 1.
+  # errjson - the real CLI's other failure mode: an {"error": ...} object on
+  #           stdout (e.g. "server_not_running"), but exit 0.
+  # empty   - a well-formed reply with no panes at all.
+  # Unset (the default), behaviour is unchanged: serve the fixture.
+  case "${HERDR_STUB_FAIL_PANE_LIST:-}" in
+  exit) exit 1 ;;
+  errjson) echo '{"error":{"code":"server_not_running"}}'; exit 0 ;;
+  empty) echo '{"result":{"panes":[]}}' ;;
+  '') jq '{result: {panes: [.result.agents[] | {pane_id, workspace_id, tab_id}]}}' "$F/agents.json" ;;
+  *) echo "stub herdr: unknown HERDR_STUB_FAIL_PANE_LIST: $HERDR_STUB_FAIL_PANE_LIST" >&2; exit 1 ;;
+  esac
+  ;;
 "workspace list")
   jq '{result: {workspaces: ([.result.agents[].workspace_id] | unique
         | map({workspace_id: ., label: ("ws-" + .)}))}}' "$F/agents.json" ;;

@@ -232,4 +232,47 @@ future=$(( $(date +%s) + 600 ))
 run stamp
 check "stamp keeps only live active snoozes" "w1:p1" "$(cut -f1 "$(state agent-snooze)")"
 
+# --- stamp prunes the rank store ---------------------------------------------
+setup
+mkdir -p "$XDG_STATE_HOME/herdr"
+{
+  printf 'w1:p1\t5\n'
+  printf 'w9:gone\t5\n'
+} >"$(state agent-priority)"
+run stamp
+check "stamp keeps only live ranks" "w1:p1" "$(cut -f1 "$(state agent-priority)")"
+
+# --- stamp reconciles prisort only where it is wrong -------------------------
+# Base fixture: w1:p1/p3/p4 already carry prisort=5, w1:p2 carries prisort=3.
+# With an empty rank store every one of them is "wrong" except w1:p2, which
+# already reads the unranked default (3) that an empty store implies — so
+# only p1, p3, p4 should get a fresh report-metadata call.
+setup
+run stamp
+check "reconcile restamps exactly the mismatched panes" "w1:p1 w1:p3 w1:p4" \
+  "$(awk '{ print $3 }' "$FIXTURE_DIR/metadata.log" | tr '\n' ' ' | sed 's/ $//')"
+check "reconcile never touches the pane already at the default" "no" \
+  "$(grep -qF 'w1:p2' "$FIXTURE_DIR/metadata.log" && echo yes || echo no)"
+
+# --- stamp never prunes on a bad or empty pane list --------------------------
+# A herdr that is down or briefly returns no panes must never read as "every
+# pane is gone": pane.agent_detected fires this hook constantly, so without a
+# guard a transient failure would wipe both stores and clear every visible
+# rank, silently. Pre-guard, all three of these failed with the seeded lines
+# gone and metadata written; confirmed by reverting the guard locally before
+# writing this comment.
+for mode in exit errjson empty; do
+  setup
+  mkdir -p "$XDG_STATE_HOME/herdr"
+  printf 'w1:p1\t5\n' >"$(state agent-priority)"
+  printf 'w1:p1\t%s\t5\n' $(( $(date +%s) + 600 )) >"$(state agent-snooze)"
+  HERDR_STUB_FAIL_PANE_LIST=$mode run stamp
+  check "stamp ($mode pane list) leaves the rank store untouched" \
+    "w1:p1	5" "$(cat "$(state agent-priority)")"
+  check "stamp ($mode pane list) leaves the snooze store untouched" \
+    "yes" "$(cut -f1 "$(state agent-snooze)" | grep -qx 'w1:p1' && echo yes || echo no)"
+  check "stamp ($mode pane list) writes no metadata" \
+    "" "$(cat "$FIXTURE_DIR/metadata.log")"
+done
+
 exit "$failed"
