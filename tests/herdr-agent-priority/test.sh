@@ -100,7 +100,12 @@ check "metadata stamps land in store-write order (4 5 5)" \
 
 # --- explicit pane ids are validated -----------------------------------------
 setup
-run up w9:nope
+sh "$SCRIPT" up w9:nope; code=$?
+check "up on an unknown pane exits 0" "0" "$code"
 check "up on an unknown pane writes nothing" "" "$(cat "$(state agent-priority)")"
+check "no metadata written for unknown pane" "" "$(cat "$FIXTURE_DIR/metadata.log")"
+check "no toast sent for unknown pane" "" "$(cat "$FIXTURE_DIR/toasts.log")"
+check "logs that pane was not live" "yes" \
+  "$(grep -qF 'not a live agent: w9:nope' "$(state agent-priority.log)" && echo yes || echo no)"
 
 exit "$failed"

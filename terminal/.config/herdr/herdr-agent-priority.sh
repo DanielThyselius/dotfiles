@@ -174,8 +174,11 @@ focused_pane() {
 # pane.
 target_pane() {
   if [ -n "${1:-}" ]; then
-    herdr agent list | jq -r --arg p "$1" \
-      'first(.result.agents[] | select(.pane_id == $p) | .pane_id) // empty'
+    list=$(herdr agent list) || { log "target_pane: agent list failed"; return 0; }
+    p=$(printf '%s\n' "$list" | jq -r --arg p "$1" \
+      'first(.result.agents[] | select(.pane_id == $p) | .pane_id) // empty')
+    [ -n "$p" ] || log "target_pane: not a live agent: $1"
+    printf '%s\n' "$p"
   else
     focused_pane
   fi
