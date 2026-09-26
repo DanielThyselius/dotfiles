@@ -375,19 +375,24 @@ focus_pane() { # focus_pane <pane_id>
 # "everything of yours that is not currently running", which does not depend on
 # the acknowledgement rule at all, and let the fork be dropped.
 #
-# Only `working` is excluded now. A working agent genuinely wants nothing.
+# `working` and snoozed panes are excluded now. A working agent genuinely
+# wants nothing, and a snoozed one has said "not right now".
 #
 # That last key is load-bearing, not decoration. Most agents sit at the default
 # rank, so without a deterministic tiebreak the head of the queue shuffles as
 # soon as anything about an agent changes, and "go to the top and stay there"
 # walks off somewhere new on every press. state_change_seq is monotonic and does
 # not move when a pane is merely focused.
-#
 queue() {
   # Snoozed panes are not in the queue at all, so alt+g cannot land on them.
+  # Read into a variable first, outside any pipeline, so a failing
+  # snoozes_active is caught here rather than swallowed by the exit status of
+  # whatever it's piped into. Failing OPEN (not filtering) is deliberate: a
+  # working alt+g that shows a snoozed pane beats an aborted one.
+  ids=$(snoozes_active) || { log "queue: snooze read failed, not filtering"; ids=''; }
   # IN rather than `inside`: on arrays of strings `inside` matches substrings,
   # so "w1:p1" would count as inside ["w1:p10"].
-  snoozed=$(snoozes_active | cut -f1 | jq -R -s -c 'split("\n") | map(select(length > 0))')
+  snoozed=$(printf '%s\n' "$ids" | cut -f1 | jq -R -s -c 'split("\n") | map(select(length > 0))')
   herdr agent list | jq -r --argjson def "$DEFAULT" --argjson snoozed "$snoozed" '
     [ .result.agents[]
       | select(.agent_status == "blocked" or .agent_status == "done"
@@ -529,7 +534,18 @@ goto)
   # demote key first and the picker second. The keys are read from config.toml
   # so the hint cannot drift from the bindings.
   q=$(queue)
-  [ -n "$q" ] || exit 0
+  if [ -z "$q" ]; then
+    # An empty queue usually means nothing is waiting, but it can also mean
+    # everything that would be is snoozed — a silent exit then looks
+    # indistinguishable from "you're caught up", which is the wrong message.
+    active=$(snoozes_active) || active=''
+    if [ -n "$active" ]; then
+      wake=$(printf '%s\n' "$active" | cut -f2 | sort -n | head -1)
+      log "goto: everything waiting is snoozed, next back $(date -d "@$wake" +%H:%M)"
+      toast "Everything waiting is snoozed" "next back $(date -d "@$wake" +%H:%M)"
+    fi
+    exit 0
+  fi
   top=$(printf '%s\n' "$q" | head -1 | cut -f2)
   band=$(printf '%s\n' "$q" | awk -F'\t' -v p="$top" '$2 == p')
   count=$(printf '%s\n' "$band" | grep -c '')

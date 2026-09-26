@@ -200,4 +200,23 @@ check "goto actually focused w1:p4" "yes" \
 check "goto did not focus the snoozed pane" "no" \
   "$(grep -qF 'agent focus w1:p1' "$FIXTURE_DIR/calls.log" && echo yes || echo no)"
 
+setup
+# w1:p10 is a substring hazard for the naive `inside` check the code comment
+# warns about: if the filter matched "w1:p1" as a substring, snoozing w1:p1
+# would also (wrongly) hide w1:p10.
+fixture '.result.agents += [{"pane_id":"w1:p10","focused":false,"agent_status":"done","terminal_title":"kappa","terminal_title_stripped":"kappa","state_change_seq":50,"tokens":{"pri":"P5","prisort":"5"},"workspace_id":"w1","tab_id":"w1:t1"}]'
+run snooze w1:p1
+check "w1:p10 is not caught as a substring of the snoozed w1:p1" \
+  "w1:p4 w1:p10 w1:p2" "$(queue_ids)"
+
+setup
+run snooze w1:p1
+run snooze w1:p2
+run snooze w1:p4
+run goto
+check "goto toasts when everything waiting is snoozed" "yes" \
+  "$(tail -n1 "$FIXTURE_DIR/toasts.log" | grep -qF 'Everything waiting is snoozed' && echo yes || echo no)"
+check "goto with an all-snoozed queue never calls agent focus" "no" \
+  "$(grep -qF 'agent focus' "$FIXTURE_DIR/calls.log" && echo yes || echo no)"
+
 exit "$failed"
