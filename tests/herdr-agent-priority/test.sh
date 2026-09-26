@@ -100,7 +100,7 @@ check "metadata stamps land in store-write order (4 5 5)" \
 
 # --- explicit pane ids are validated -----------------------------------------
 setup
-sh "$SCRIPT" up w9:nope; code=$?
+code=0; sh "$SCRIPT" up w9:nope || code=$?
 check "up on an unknown pane exits 0" "0" "$code"
 check "up on an unknown pane writes nothing" "" "$(cat "$(state agent-priority)")"
 check "no metadata written for unknown pane" "" "$(cat "$FIXTURE_DIR/metadata.log")"
