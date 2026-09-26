@@ -111,6 +111,29 @@ toast() { # toast <title> <body>
   case $id in '' | *[!0-9]*) ;; *) printf '%s\n' "$id" >"$NOTIFY_ID" ;; esac
 }
 
+# The key a subcommand of this script is bound to, as you would actually press
+# it, or nothing if it is unbound. Read from config.toml rather than hardcoded
+# because the hint in a toast is only useful while it is true, and the bindings
+# have moved before (the picker went from alt+p to prefix+p). `prefix+` is
+# expanded to the real prefix, since "prefix" is config vocabulary, not a key.
+keybind_for() { # keybind_for <subcommand>
+  python3 - "$1" "${HERDR_CONFIG_PATH:-${XDG_CONFIG_HOME:-$HOME/.config}/herdr/config.toml}" \
+    <<'PYKEY' 2>/dev/null || true
+import re, sys, tomllib
+sub, path = sys.argv[1], sys.argv[2]
+with open(path, "rb") as f:
+    keys = tomllib.load(f).get("keys", {})
+pat = re.compile(r"herdr-agent-priority\.sh\s+" + re.escape(sub) + r"\b")
+for c in keys.get("command", []):
+    if pat.search(c.get("command", "")):
+        k = c.get("key", "")
+        if k.startswith("prefix+") and keys.get("prefix"):
+            k = keys["prefix"] + " " + k[len("prefix+"):]
+        print(k)
+        break
+PYKEY
+}
+
 pane_title() { # pane_title <pane_id>
   herdr agent list | jq -r --arg p "$1" \
     'first(.result.agents[] | select(.pane_id == $p)
@@ -371,9 +394,10 @@ goto)
   #
   # When the band holds exactly one and you are on it, it says so rather than
   # moving. Answering an agent starts it working, and working is the one status
-  # the queue excludes, so it leaves the band by itself. The escape is the picker, NOT a demotion: "not
-  # right now" is a different statement from "less important", and demoting to
-  # get past something turns the rank into a schedule.
+  # the queue excludes, so it leaves the band by itself. If it is still sitting
+  # there, the usual reason is that its rank is stale, so the toast offers the
+  # demote key first and the picker second. The keys are read from config.toml
+  # so the hint cannot drift from the bindings.
   q=$(queue)
   [ -n "$q" ] || exit 0
   top=$(printf '%s\n' "$q" | head -1 | cut -f2)
@@ -383,7 +407,12 @@ goto)
   if [ "$count" -eq 1 ] && [ "$on_it" -eq 1 ]; then
     head_row=$(printf '%s\n' "$band" | head -1)
     log "goto already at the top ($(printf '%s\n' "$head_row" | cut -f1))"
-    toast "Top of the ranking" "$(printf '%s\n' "$head_row" | cut -f5) · alt+p to pick another"
+    hint=''
+    k=$(keybind_for down)
+    [ -z "$k" ] || hint="$k to lower it"
+    k=$(keybind_for open)
+    [ -z "$k" ] || hint="${hint:+$hint · }$k to pick another"
+    toast "Top of the ranking" "$(printf '%s\n' "$head_row" | cut -f5)${hint:+ · $hint}"
     exit 0
   fi
   target=$(printf '%s\n' "$band" | awk -F'\t' '

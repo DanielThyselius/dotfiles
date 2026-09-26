@@ -1,0 +1,14 @@
+#!/bin/sh
+# Stub herdr CLI for the offline tests. Serves $FIXTURE_DIR/agents.json and
+# records writes instead of sending them anywhere.
+set -eu
+F=$FIXTURE_DIR
+case "$1 ${2:-}" in
+"agent list") cat "$F/agents.json" ;;
+"pane list")
+  jq '{result: {panes: [.result.agents[] | {pane_id, workspace_id, tab_id}]}}' "$F/agents.json" ;;
+"workspace list") echo '{"result":{"workspaces":[{"workspace_id":"w1","label":"ws"}]}}' ;;
+"tab list") echo '{"result":{"tabs":[{"tab_id":"w1:t1","label":"tab"}]}}' ;;
+"pane report-metadata") printf '%s\n' "$*" >>"$F/metadata.log" ;;
+*) : ;;
+esac

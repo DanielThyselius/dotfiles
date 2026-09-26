@@ -1,0 +1,4 @@
+#!/bin/sh
+# Stub notify-send: record the call, hand back an id like the real one.
+printf '%s\n' "$*" >>"$FIXTURE_DIR/toasts.log"
+echo 1

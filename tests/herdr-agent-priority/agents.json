@@ -1,0 +1,6 @@
+{"result":{"agents":[
+ {"pane_id":"w1:p1","focused":false,"agent_status":"done","terminal_title":"alpha","terminal_title_stripped":"alpha","state_change_seq":10,"tokens":{"pri":"P5","prisort":"5"},"workspace_id":"w1","tab_id":"w1:t1"},
+ {"pane_id":"w1:p2","focused":true,"agent_status":"idle","terminal_title":"beta","terminal_title_stripped":"beta","state_change_seq":20,"tokens":{"prisort":"3"},"workspace_id":"w1","tab_id":"w1:t1"},
+ {"pane_id":"w1:p3","focused":false,"agent_status":"working","terminal_title":"gamma","terminal_title_stripped":"gamma","state_change_seq":30,"tokens":{"pri":"P5","prisort":"5"},"workspace_id":"w1","tab_id":"w1:t1"},
+ {"pane_id":"w1:p4","focused":false,"agent_status":"done","terminal_title":"delta","terminal_title_stripped":"delta","state_change_seq":40,"tokens":{"pri":"P5","prisort":"5"},"workspace_id":"w1","tab_id":"w1:t1"}
+]}}

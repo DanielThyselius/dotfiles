@@ -275,8 +275,8 @@ description = "Go to agent needing attention"
 # pressing past the thing you called most important is how a ranking rots into a
 # to-do list. When you are already on it, it says so instead of moving. The
 # queue already ignores working agents, so answering one makes it step aside by
-# itself. To go elsewhere deliberately, use the picker rather than demoting —
-# "not right now" is not the same statement as "less important".
+# itself. If it is still there, its rank is usually stale: the toast suggests
+# alt+shift+p first and the picker second, both read live from this file.
 #
 # The blocked-first sweep stays on prefix+a, since blocked is the rare state
 # here, often zero of thirty.
