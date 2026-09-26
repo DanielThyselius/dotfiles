@@ -38,7 +38,7 @@ setup() {
   FIXTURE_DIR="$T/fx"
   HERDR_CONFIG_PATH="$CONFIG"
   export HOME XDG_STATE_HOME FIXTURE_DIR HERDR_CONFIG_PATH
-  unset AGENT_PRIORITY_CRIT_DELAY 2>/dev/null || true
+  unset AGENT_PRIORITY_CRIT_DELAY HERDR_STUB_FAIL_PANE_LIST 2>/dev/null || true
   # Strip anything that could point this run at a real herdr session, so a
   # call that slips past the stub fails loudly instead of reaching it.
   unset HERDR_SOCKET_PATH HERDR_BIN_PATH HERDR_PANE_ID HERDR_TAB_ID \
