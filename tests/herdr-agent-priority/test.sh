@@ -108,4 +108,49 @@ check "no toast sent for unknown pane" "" "$(cat "$FIXTURE_DIR/toasts.log")"
 check "logs that pane was not live" "yes" \
   "$(grep -qF 'not a live agent: w9:nope' "$(state agent-priority.log)" && echo yes || echo no)"
 
+# --- snooze ladder -------------------------------------------------------------
+snooze_step_of() { awk -F'\t' -v p="$1" '$1 == p { print $3 }' "$(state agent-snooze)"; }
+
+setup
+steps=''
+for _ in 1 2 3 4 5; do
+  run snooze w1:p1
+  steps="$steps $(snooze_step_of w1:p1)"
+done
+check "snooze ladder 5,30,120,240,off" " 5 30 120 240 " "$steps"
+check "snooze toast names duration" "yes" \
+  "$(grep -qF 'Snoozed 5m' "$FIXTURE_DIR/toasts.log" && echo yes || echo no)"
+
+setup
+before=$(date +%s)
+run snooze w1:p1
+wake=$(awk -F'\t' '$1 == "w1:p1" { print $2 }' "$(state agent-snooze)")
+check "5m wake is 300s from now" "yes" \
+  "$([ "$wake" -ge $((before + 300)) ] && [ "$wake" -le $((before + 302)) ] && echo yes || echo no)"
+
+setup
+mkdir -p "$XDG_STATE_HOME/herdr"
+printf 'w1:p1\t%s\t15\n' $(( $(date +%s) + 600 )) >"$(state agent-snooze)"
+run snooze w1:p1
+check "a step outside the ladder is treated as unsnoozed" "5" "$(snooze_step_of w1:p1)"
+
+setup
+mkdir -p "$XDG_STATE_HOME/herdr"
+printf 'w1:p1\t%s\t30\n' $(( $(date +%s) - 1 )) >"$(state agent-snooze)"
+run snooze w1:p1
+check "an expired snooze restarts at 5m" "5" "$(snooze_step_of w1:p1)"
+
+setup
+run snooze w9:nope
+check "snooze on an unknown pane writes nothing" "" "$(cat "$(state agent-snooze)" 2>/dev/null)"
+
+setup
+AGENT_PRIORITY_CRIT_DELAY=0.3
+export AGENT_PRIORITY_CRIT_DELAY
+run snooze w1:p1 & run snooze w1:p1 & run snooze w1:p1 & wait
+check "three concurrent snoozes land on 120" "120" "$(snooze_step_of w1:p1)"
+run snooze w1:p2 & run snooze w1:p4 & wait
+check "concurrent snoozes of different panes both survive" "3" \
+  "$(grep -c '' "$(state agent-snooze)")"
+
 exit "$failed"

@@ -5,6 +5,7 @@
 #   herdr-agent-priority.sh down [pane_id]    lower one step, stops at 1
 #   herdr-agent-priority.sh set <1-5> [pane_id]
 #   herdr-agent-priority.sh clear [pane_id]
+#   herdr-agent-priority.sh snooze [pane_id]   step the snooze: 5m, 30m, 2h, 4h, off
 #   herdr-agent-priority.sh goto              focus the next highest-priority waiting agent
 #   herdr-agent-priority.sh open              open the picker and act on its choice
 #   herdr-agent-priority.sh pick              the picker itself, run inside the popup
@@ -65,6 +66,7 @@ SOURCE=agent-priority
 DEFAULT=3
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/herdr"
 STORE="$STATE_DIR/agent-priority"
+SNOOZE="$STATE_DIR/agent-snooze"
 SELECTION="$STATE_DIR/agent-priority.selection"
 LOG="$STATE_DIR/agent-priority.log"
 NOTIFY_ID="$STATE_DIR/agent-priority.notify-id"
@@ -72,6 +74,7 @@ LOCK="$STATE_DIR/agent-priority.lock"
 
 mkdir -p "$STATE_DIR"
 [ -f "$STORE" ] || : >"$STORE"
+[ -f "$SNOOZE" ] || : >"$SNOOZE"
 
 die() { echo "$*" >&2; exit 2; }
 
@@ -201,6 +204,47 @@ stamp_one() { # stamp_one <pane_id> <priority|"">
     herdr pane report-metadata "$1" --source "$SOURCE" \
       --clear-token pri --token "prisort=$DEFAULT" >/dev/null
   fi
+}
+
+# SNOOZE. "Not right now" for a pane whose next step is waiting on someone
+# else — another agent's review, a human, an email. A snoozed pane drops out of
+# the alt+g queue until its time is up and then simply counts again: nothing
+# runs at expiry, the queue just stops excluding it. Kept apart from the rank
+# store because importance and timing are different facts.
+#
+# Lines are pane<TAB>wake_epoch<TAB>step, step in minutes. The step is stored
+# rather than derived from the time left, because a half-used 30m would
+# otherwise look like a fresh 15m and the next press would pick the wrong rung.
+
+# Active snoozes only. A line with a non-numeric wake, a step off the ladder, or
+# a wake in the past is not a snooze, and every rewrite drops it.
+snoozes_active() {
+  awk -F'\t' -v now="$(date +%s)" \
+    '$2 ~ /^[0-9]+$/ && $3 ~ /^(5|30|120|240)$/ && $2 + 0 > now + 0' "$SNOOZE"
+}
+
+snooze_label() { # snooze_label <minutes>: 5m, 30m, 2h, 4h
+  if [ "$1" -ge 60 ]; then echo "$(($1 / 60))h"; else echo "${1}m"; fi
+}
+
+snooze_step() { # snooze_step <pane_id>; run under `locked`; sets $step and $wake
+  cur=$(snoozes_active | awk -F'\t' -v p="$1" '$1 == p { print $3; exit }')
+  case $cur in
+  '') step=5 ;;
+  5) step=30 ;;
+  30) step=120 ;;
+  120) step=240 ;;
+  *) step='' ;;
+  esac
+  crit_delay
+  wake=''
+  tmp=$(mktemp "$SNOOZE.XXXXXX")
+  snoozes_active | awk -F'\t' -v p="$1" '$1 != p' >"$tmp"
+  if [ -n "$step" ]; then
+    wake=$(($(date +%s) + step * 60))
+    printf '%s\t%s\t%s\n' "$1" "$wake" "$step" >>"$tmp"
+  fi
+  mv "$tmp" "$SNOOZE"
 }
 
 # Tell herdr to order the agent panel by the hidden sort token. Ranked first,
@@ -410,7 +454,7 @@ rows() {
 SELF="$HOME/.config/herdr/herdr-agent-priority.sh"
 
 cmd=${1:-}
-[ -n "$cmd" ] || die "usage: $0 {up|down|set <1-5>|clear|goto|pick|rows|stamp|list} [pane_id]"
+[ -n "$cmd" ] || die "usage: $0 {up|down|set <1-5>|clear|snooze|goto|pick|rows|stamp|list} [pane_id]"
 shift
 log "run $cmd $* (herdr=$(command -v herdr || echo MISSING))"
 
@@ -437,6 +481,22 @@ clear)
   pane=$(target_pane "${1:-}")
   [ -n "$pane" ] || exit 0
   apply "$pane" ""
+  ;;
+
+snooze)
+  # Each press moves one rung from wherever the pane is now; past 4h it is off.
+  # Focus stays put so the key can be pressed again, and alt+g already skips
+  # the pane, so the next alt+g goes somewhere else by itself.
+  pane=$(target_pane "${1:-}")
+  [ -n "$pane" ] || exit 0
+  locked snooze_step "$pane"
+  title=$(pane_title "$pane")
+  [ -n "$title" ] || title="$pane"
+  if [ -n "$step" ]; then
+    toast "Snoozed $(snooze_label "$step")" "$title · until $(date -d "@$wake" +%H:%M)"
+  else
+    toast "Snooze off" "$title"
+  fi
   ;;
 
 goto)
