@@ -259,6 +259,54 @@ snooze_step() { # snooze_step <pane_id>; run under `locked`; sets $step and $wak
   rm -f "$snap"
 }
 
+# Startup cleanup, run under `locked`: re-project the rank store onto metadata
+# tokens (a restore wiped them), drop entries whose pane is gone from both
+# stores, and drop expired or malformed snoozes, so neither file can grow
+# without bound.
+#
+# The prisort reconcile (every agent needs the hidden sort token or it falls
+# off the bottom of the panel) runs in here too, not after `locked prune`
+# returns. It reads the store via `stored` and writes metadata via
+# `stamp_one`, exactly like the store rewrite above it — outside the lock a
+# concurrent `up`/`set`/`clear` could land between this read and its
+# stamp_one, and this stale restamp would overwrite that fresher write.
+prune() {
+  live=$(herdr pane list | jq -r '.result.panes[].pane_id' | sort -u)
+  tmp=$(mktemp "$STORE.XXXXXX")
+  while IFS='	' read -r pane pri; do
+    [ -n "$pane" ] || continue
+    if printf '%s\n' "$live" | grep -qx "$pane"; then
+      printf '%s\t%s\n' "$pane" "$pri" >>"$tmp"
+      stamp_one "$pane" "$pri"
+    fi
+  done <"$STORE"
+  mv "$tmp" "$STORE"
+
+  # The snoozes are read once into a variable, never piped straight into the
+  # write loop below: under `set -e` a failing snoozes_active here must abort
+  # this critical section (leaving both stores untouched) rather than have its
+  # exit status swallowed by the pipe into `while`.
+  active=$(snoozes_active)
+  tmp=$(mktemp "$SNOOZE.XXXXXX")
+  printf '%s\n' "$active" |
+    while IFS='	' read -r pane wake step; do
+      [ -n "$pane" ] || continue
+      if printf '%s\n' "$live" | grep -qx "$pane"; then
+        printf '%s\t%s\t%s\n' "$pane" "$wake" "$step"
+      fi
+    done >"$tmp"
+  mv "$tmp" "$SNOOZE"
+
+  herdr agent list |
+    jq -r '.result.agents[] | "\(.pane_id)\t\(.tokens.prisort // "")"' |
+    while IFS="$(printf '\t')" read -r pane cur; do
+      [ -n "$pane" ] || continue
+      want=$(stored "$pane")
+      [ -n "$want" ] || want=$DEFAULT
+      [ "$cur" = "$want" ] || stamp_one "$pane" "$(stored "$pane")"
+    done
+}
+
 # Tell herdr to order the agent panel by the hidden sort token. Ranked first,
 # then whoever is actually asking for something, then the usual space order so
 # equal rows keep a stable, familiar arrangement.
@@ -628,32 +676,9 @@ open)
   ;;
 
 stamp)
-  # Startup hook. Re-projects the store onto metadata tokens after a restore
-  # wiped them, and drops entries whose pane is gone so the file cannot grow
-  # without bound.
-  live=$(herdr pane list | jq -r '.result.panes[].pane_id' | sort -u)
-  tmp=$(mktemp "$STORE.XXXXXX")
-  while IFS='	' read -r pane pri; do
-    [ -n "$pane" ] || continue
-    if printf '%s\n' "$live" | grep -qx "$pane"; then
-      printf '%s\t%s\n' "$pane" "$pri" >>"$tmp"
-      stamp_one "$pane" "$pri"
-    fi
-  done <"$STORE"
-  mv "$tmp" "$STORE"
-
-  # Every agent needs the hidden sort token or it falls off the bottom of the
-  # panel. Read the whole list once and write only where it is actually wrong,
-  # so the usual case costs one API call instead of thirty.
-  herdr agent list |
-    jq -r '.result.agents[] | "\(.pane_id)\t\(.tokens.prisort // "")"' |
-    while IFS="$(printf '\t')" read -r pane cur; do
-      [ -n "$pane" ] || continue
-      want=$(stored "$pane")
-      [ -n "$want" ] || want=$DEFAULT
-      [ "$cur" = "$want" ] || stamp_one "$pane" "$(stored "$pane")"
-    done
-
+  # Startup hook. See prune()'s comment for why the prisort reconcile lives in
+  # there too, under the same lock, rather than after it.
+  locked prune
   set_view
   ;;
 

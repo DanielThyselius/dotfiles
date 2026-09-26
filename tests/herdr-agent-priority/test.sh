@@ -219,4 +219,17 @@ check "goto toasts when everything waiting is snoozed" "yes" \
 check "goto with an all-snoozed queue never calls agent focus" "no" \
   "$(grep -qF 'agent focus' "$FIXTURE_DIR/calls.log" && echo yes || echo no)"
 
+# --- stamp prunes the snooze store -------------------------------------------
+setup
+mkdir -p "$XDG_STATE_HOME/herdr"
+future=$(( $(date +%s) + 600 ))
+{
+  printf 'w1:p1\t%s\t5\n' "$future"               # live, active: keep
+  printf 'w9:gone\t%s\t5\n' "$future"             # pane gone: drop
+  printf 'w1:p4\t%s\t5\n' $(( $(date +%s) - 1 ))  # expired: drop
+  printf 'w1:p2\t%s\t15\n' "$future"              # bad step: drop
+} >"$(state agent-snooze)"
+run stamp
+check "stamp keeps only live active snoozes" "w1:p1" "$(cut -f1 "$(state agent-snooze)")"
+
 exit "$failed"
