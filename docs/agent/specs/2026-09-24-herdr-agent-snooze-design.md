@@ -79,36 +79,38 @@ status column shows `zz HH:MM` (wake time, local) instead of the agent status,
 dimmed. Sorting within a band puts snoozed rows last. Selecting one still jumps
 to it.
 
-### Picker keys: command mode by default, `/` to search
+### Picker keys: always searching, commands on alt
 
-The picker's commands drop the alt modifier. Plain letters would otherwise be
-swallowed from the search query (a title search containing p or z becomes
-untypeable), so the picker gets two modes, built from fzf's own
-`show-input`/`hide-input`, `enable-search`/`disable-search` and
-`unbind`/`rebind` actions (fzf 0.74 here).
+Typing always filters; every command is an alt chord, so no letter or digit is
+ever taken from the query. The query survives each action's reload, which is
+what makes a chained flow work:
 
-Command mode (the default on open; input hidden, search disabled):
+    prefix+p → "herdr" → alt+z → ctrl+backspace → "smarticipate re"
+             → alt+shift+p → backspace ×2 → "feat" → alt+5
 
-| key        | action                                  |
-|------------|-----------------------------------------|
-| up/down    | move                                    |
-| enter      | jump to the row                         |
-| p          | raise one step (`up {1}`)               |
-| P          | lower one step (`down {1}`)             |
-| z          | step the snooze ladder (`snooze {1}`)   |
-| 1-5        | set rank outright (3 = unranked)        |
-| 0          | clear rank                              |
-| /          | enter search mode                       |
-| esc        | close the picker                        |
+| key            | action                                     |
+|----------------|--------------------------------------------|
+| type           | filter                                     |
+| up/down        | move                                       |
+| enter          | jump to the row                            |
+| alt+p          | raise one step (`up {1}`)                  |
+| alt+shift+p    | lower one step (`down {1}`)                |
+| alt+z          | step the snooze ladder (`snooze {1}`)      |
+| alt+1 … alt+5  | set rank outright (alt+3 = unranked)       |
+| ctrl+backspace | delete the previous word                   |
+| esc            | close                                      |
 
-Search mode (after `/`; input shown, search enabled, the command keys above
-unbound so every letter and digit types): enter jumps, esc clears the query and
-returns to command mode (hide input, disable search, rebind, restore header).
+- The bare `1`-`5` and `0` bindings are removed (digits type into the query),
+  and there is no separate clear key: alt+3 is unranked, as 3 is everywhere.
+- `ctrl-bspace` is bound to `backward-kill-word`; fzf's default for it deletes a
+  single character.
+- `--track --id-nth 1` keeps the cursor on the same pane id across reloads.
+  Without it a re-rank re-sorts the list under the cursor and a second
+  alt+shift+p would hit a different row.
+- Each action still reloads via `rows`. The header legend is updated to match.
 
-Each action still reloads via `rows`, as the digits do today. The header shows
-the key legend for the current mode (`change-header`). The old `alt-p` /
-`alt-P` fzf bindings are removed. The herdr-level alt+p / alt+shift+p / alt+z
-keybinds for the focused pane are unchanged.
+The same alt keys mean the same thing outside the picker (focused pane) and
+inside it (highlighted row).
 
 ### `stamp` (startup hook)
 
@@ -151,11 +153,10 @@ Manual, against the live session (herdr has no test harness here):
    `list` shows the pane again with no other action.
 4. Picker shows `zz HH:MM` for a snoozed row, dimmed and last in its band;
    enter jumps to it.
-5. Picker opens in command mode: p/P/z/1-5/0 act on the highlighted row
-   without typing into anything; `/` opens search where "pz 123" types
-   literally; esc returns to command mode, a second esc closes. Also record
-   whether the cursor stays on the searched-for row after leaving search — if
-   it does, "/ find, esc, p" is a supported flow; if not, note it in the
-   script comments rather than working around it.
+5. In the picker: alt+p / alt+shift+p / alt+z / alt+1-5 act on the
+   highlighted row and keep the query; the cursor stays on the same pane after
+   the reload re-sorts; "pz 123" types literally; ctrl+backspace deletes a
+   word. Confirm alt+1-5 reach the popup rather than being taken by herdr's
+   switch_tab binding.
 6. Close a snoozed pane, run `stamp`: its line is gone.
 7. `sh -n` and `herdr config check` pass.
