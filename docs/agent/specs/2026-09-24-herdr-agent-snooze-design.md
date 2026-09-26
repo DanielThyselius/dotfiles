@@ -77,7 +77,38 @@ the band.
 Snoozed panes stay in the list (the picker is "everything you have on"). Their
 status column shows `zz HH:MM` (wake time, local) instead of the agent status,
 dimmed. Sorting within a band puts snoozed rows last. Selecting one still jumps
-to it. No new picker keys.
+to it.
+
+### Picker keys: command mode by default, `/` to search
+
+The picker's commands drop the alt modifier. Plain letters would otherwise be
+swallowed from the search query (a title search containing p or z becomes
+untypeable), so the picker gets two modes, built from fzf's own
+`show-input`/`hide-input`, `enable-search`/`disable-search` and
+`unbind`/`rebind` actions (fzf 0.74 here).
+
+Command mode (the default on open; input hidden, search disabled):
+
+| key        | action                                  |
+|------------|-----------------------------------------|
+| up/down    | move                                    |
+| enter      | jump to the row                         |
+| p          | raise one step (`up {1}`)               |
+| P          | lower one step (`down {1}`)             |
+| z          | step the snooze ladder (`snooze {1}`)   |
+| 1-5        | set rank outright (3 = unranked)        |
+| 0          | clear rank                              |
+| /          | enter search mode                       |
+| esc        | close the picker                        |
+
+Search mode (after `/`; input shown, search enabled, the command keys above
+unbound so every letter and digit types): enter jumps, esc clears the query and
+returns to command mode (hide input, disable search, rebind, restore header).
+
+Each action still reloads via `rows`, as the digits do today. The header shows
+the key legend for the current mode (`change-header`). The old `alt-p` /
+`alt-P` fzf bindings are removed. The herdr-level alt+p / alt+shift+p / alt+z
+keybinds for the focused pane are unchanged.
 
 ### `stamp` (startup hook)
 
@@ -120,5 +151,11 @@ Manual, against the live session (herdr has no test harness here):
    `list` shows the pane again with no other action.
 4. Picker shows `zz HH:MM` for a snoozed row, dimmed and last in its band;
    enter jumps to it.
-5. Close a snoozed pane, run `stamp`: its line is gone.
-6. `sh -n` and `herdr config check` pass.
+5. Picker opens in command mode: p/P/z/1-5/0 act on the highlighted row
+   without typing into anything; `/` opens search where "pz 123" types
+   literally; esc returns to command mode, a second esc closes. Also record
+   whether the cursor stays on the searched-for row after leaving search — if
+   it does, "/ find, esc, p" is a supported flow; if not, note it in the
+   script comments rather than working around it.
+6. Close a snoozed pane, run `stamp`: its line is gone.
+7. `sh -n` and `herdr config check` pass.
