@@ -210,14 +210,34 @@ check "w1:p10 is not caught as a substring of the snoozed w1:p1" \
   "w1:p4 w1:p10 w1:p2" "$(queue_ids)"
 
 setup
-run snooze w1:p1
-run snooze w1:p2
-run snooze w1:p4
+mkdir -p "$XDG_STATE_HOME/herdr"
+# Hand-written wakes, well apart, so "earliest" actually discriminates —
+# real `snooze` calls a few hundred ms apart would all round to the same
+# HH:MM and the assertion below couldn't tell right from wrong.
+now=$(date +%s)
+printf 'w1:p1\t%s\t30\n' $((now + 1800)) >"$(state agent-snooze)"
+printf 'w1:p2\t%s\t5\n' $((now + 200)) >>"$(state agent-snooze)"
+printf 'w1:p4\t%s\t120\n' $((now + 7000)) >>"$(state agent-snooze)"
 run goto
+expected=$(date -d "@$((now + 200))" +%H:%M)
 check "goto toasts when everything waiting is snoozed" "yes" \
   "$(tail -n1 "$FIXTURE_DIR/toasts.log" | grep -qF 'Everything waiting is snoozed' && echo yes || echo no)"
+check "goto's toast names the earliest wake among the waiting snoozed panes" "yes" \
+  "$(tail -n1 "$FIXTURE_DIR/toasts.log" | grep -qF "next back $expected" && echo yes || echo no)"
 check "goto with an all-snoozed queue never calls agent focus" "no" \
   "$(grep -qF 'agent focus' "$FIXTURE_DIR/calls.log" && echo yes || echo no)"
+
+setup
+# w1:p3 is snoozed but was never in the queue to begin with — it's `working`,
+# same as every other pane once the fixture below flips them all. An empty
+# queue here means nothing is actually waiting, so goto must stay silent
+# rather than announce a snooze that was never blocking anything.
+fixture '.result.agents |= map(.agent_status = "working")'
+run snooze w1:p3
+: >"$FIXTURE_DIR/toasts.log"
+run goto
+check "goto stays silent when the only active snooze was never waiting" "" \
+  "$(cat "$FIXTURE_DIR/toasts.log")"
 
 # --- stamp prunes the snooze store -------------------------------------------
 setup

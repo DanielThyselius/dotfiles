@@ -306,8 +306,9 @@ prune() {
 
   # The snoozes are read once into a variable, never piped straight into the
   # write loop below: under `set -e` a failing snoozes_active here must abort
-  # this critical section (leaving both stores untouched) rather than have its
-  # exit status swallowed by the pipe into `while`.
+  # this critical section (leaving the snooze store untouched — the rank
+  # store above has already been rewritten by this point) rather than have
+  # its exit status swallowed by the pipe into `while`.
   active=$(snoozes_active)
   tmp=$(mktemp "$SNOOZE.XXXXXX")
   printf '%s\n' "$active" |
@@ -389,7 +390,14 @@ locked() { # locked <command...>
 # leaving the sidebar disagreeing with the store. Toasts stay outside.
 rank_write() { # rank_write <pane_id> <priority|"">
   store_set "$1" "$2"
-  stamp_one "$1" "$2"
+  # rank_write runs under `locked` as a plain command (never in a condition,
+  # per that contract), so a bare failure here would abort silently with the
+  # lock still released on process exit. Log first so a run of these shows up
+  # instead of the sidebar just quietly disagreeing with the store.
+  stamp_one "$1" "$2" || {
+    log "rank_write: stamp failed for $1 (store updated, token stale until next stamp)"
+    exit 1
+  }
 }
 
 rank_step() { # rank_step <pane_id> <up|down>; sets $next
@@ -620,9 +628,28 @@ goto)
     # An empty queue usually means nothing is waiting, but it can also mean
     # everything that would be is snoozed — a silent exit then looks
     # indistinguishable from "you're caught up", which is the wrong message.
+    #
+    # A snooze on its own is not enough to say so, though: it may belong to a
+    # working or already-gone pane, which was never going to be in the queue
+    # anyway. So the wake map is joined against a fresh agent list, the same
+    # way rows() joins its workspace/tab maps, and only snoozed panes that are
+    # actually blocked/done/idle right now count. Failing to read that list
+    # fails open to no toast, same as everywhere else this is read.
     active=$(snoozes_active) || active=''
+    wake=''
     if [ -n "$active" ]; then
-      wake=$(printf '%s\n' "$active" | cut -f2 | sort -n | head -1)
+      snoozed_map=$(printf '%s\n' "$active" | jq -R -s -c '
+        split("\n") | map(select(length > 0) | split("\t"))
+        | map({key: .[0], value: (.[1] | tonumber)}) | from_entries')
+      wake=$(herdr agent list | jq -r --argjson wake "$snoozed_map" '
+        [ .result.agents[]
+          | select(.agent_status == "blocked" or .agent_status == "done"
+                   or .agent_status == "idle")
+          | select(.pane_id as $p | $wake | has($p))
+          | $wake[.pane_id] ]
+        | sort | .[0] // empty') || wake=''
+    fi
+    if [ -n "$wake" ]; then
       log "goto: everything waiting is snoozed, next back $(date -d "@$wake" +%H:%M)"
       toast "Everything waiting is snoozed" "next back $(date -d "@$wake" +%H:%M)"
     fi
