@@ -89,4 +89,13 @@ run up w1:p2 & run up w1:p2 & run up w1:p2 & wait
 check "three concurrent ups from unranked land on 5" \
   "w1:p2	5" "$(cat "$(state agent-priority)")"
 
+# The metadata stamp is inside the lock (Task 2 Step 7's spec change), so the
+# sidebar token is written in the same order as the store: 4, then 5, then 5
+# again. Stamped outside the lock, the three processes' `report-metadata`
+# calls would race independently of their store writes and could land as
+# 4 5 5, 5 4 5 or any other order — this would have failed against that bug.
+check "metadata stamps land in store-write order (4 5 5)" \
+  "4 5 5" \
+  "$(grep -o 'prisort=[0-9]*' "$FIXTURE_DIR/metadata.log" | cut -d= -f2 | tr '\n' ' ' | sed 's/ $//')"
+
 exit "$failed"

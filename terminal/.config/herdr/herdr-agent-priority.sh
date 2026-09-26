@@ -232,8 +232,22 @@ PYVIEW
 # step is lost. The brace group runs in THIS shell, so a critical section's
 # results (next, step, wake) are visible to the caller afterwards; the lock is
 # released when fd 9 closes at the end of the group, or when the process exits.
+# The wait is bounded at 5s: a hung `herdr pane report-metadata` inside the
+# critical section would otherwise block every later keypress silently, and
+# logging the timeout means a run of them shows up instead of just going
+# quiet.
+#
+# CONTRACT for callers, here and in later tasks: call `locked` as a plain
+# command, never in a condition. `if locked ...` or `locked ... ||` disables
+# `set -e` *inside* the critical section, so a failing mktemp/awk there falls
+# through instead of aborting and can install a truncated store. And never
+# background or start anything long-lived inside a critical section: a child
+# process inherits fd 9 and keeps the lock held after the group itself ends.
 locked() { # locked <command...>
-  { flock 9; "$@"; } 9>"$LOCK"
+  {
+    flock -w 5 9 || { log "lock: timed out after 5s"; exit 1; }
+    "$@"
+  } 9>"$LOCK"
 }
 
 # Critical sections, run under `locked`. The metadata stamp is inside on
