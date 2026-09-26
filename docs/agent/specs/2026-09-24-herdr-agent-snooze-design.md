@@ -33,9 +33,26 @@ expiry treats it like any other waiting agent.
 
 `$STATE_DIR/agent-snooze` (i.e. `~/.local/state/herdr/agent-snooze`), one line
 per snoozed pane: `pane_id<TAB>wake_epoch<TAB>step` (epoch in seconds, step in
-minutes; see below). Separate
-from the rank store so the two never interact. Written with the same
-temp-file-and-`mv` pattern as `store_set`.
+minutes; see below). Separate from the rank store so the two never interact.
+Written with the same temp-file-and-`mv` pattern as `store_set`.
+
+### Locking
+
+Rename-into-place prevents torn reads but not lost updates: each keypress is a
+separate process, each spends tens of milliseconds in `herdr agent list` before
+writing, so two quick presses can both read "unsnoozed" and both write 5m, or
+one pane's write can drop another pane's change. Repeated presses are the
+intended interaction, so this has to hold.
+
+Every read-modify-write of either store takes one exclusive lock,
+`$STATE_DIR/agent-priority.lock`, via `flock` (util-linux). The critical section
+is: read the line, compute the next value (ladder step or rank step), write the
+file. The herdr metadata stamp, the toast and any other API calls happen outside
+it, so a slow API call never holds up the next press. `stamp`'s cleanup of both
+files runs under the same lock.
+
+This also fixes the existing rank path: `up`/`down` have the same unlocked
+read-then-write today, and a quick double alt+p can currently land one step.
 
 A pane is snoozed iff it has a line whose `wake_epoch` is greater than now.
 Expired lines are inert; they are just ignored until cleaned up.
@@ -109,8 +126,9 @@ what makes a chained flow work:
   alt+shift+p would hit a different row.
 - Each action still reloads via `rows`. The header legend is updated to match.
 
-The same alt keys mean the same thing outside the picker (focused pane) and
-inside it (highlighted row).
+alt+p, alt+shift+p and alt+z mean the same thing outside the picker (focused
+pane) and inside it (highlighted row). alt+1-5 do not: outside the picker they
+are herdr's switch_tab, so setting a rank outright by number is picker-only.
 
 ### `stamp` (startup hook)
 
@@ -135,11 +153,17 @@ The header usage block in the script gains `snooze [pane_id]`.
 
 ## Error handling
 
-- No focused agent / unknown pane: exit 0 silently, as `up`/`down` do.
+- No focused agent: exit 0 silently, as `up`/`down` do.
+- Explicit pane id: validated against `herdr agent list` before any state is
+  written (`target_pane` returns an explicit id unchecked today). An id that is
+  not a live agent exits 0 without writing. The validation reuses the list call
+  already needed for the toast title, so it costs nothing extra.
 - Missing or unreadable snooze file: treated as empty (created on first write,
   like the rank store).
-- Malformed lines (non-numeric epoch or step): treated as not snoozed and
-  dropped on the next write or `stamp`.
+- Malformed lines — non-numeric epoch, or a step outside {5, 30, 120, 240} —
+  are treated as not snoozed (the next press starts at 5m) and dropped on the
+  next write or `stamp`. Without the step check an entry with step 15 would
+  have no defined next rung.
 
 ## Testing
 
@@ -159,4 +183,10 @@ Manual, against the live session (herdr has no test harness here):
    word. Confirm alt+1-5 reach the popup rather than being taken by herdr's
    switch_tab binding.
 6. Close a snoozed pane, run `stamp`: its line is gone.
-7. `sh -n` and `herdr config check` pass.
+7. Rapid presses: run `snooze <pane> & snooze <pane> & snooze <pane> & wait`
+   and confirm the step is 2h (three rungs), not 5m; same with three
+   concurrent `up` from unranked landing on P5. Also snooze two different panes
+   concurrently and confirm both lines survive.
+8. `snooze <bogus-id>` and a line with step 15 edited into the file: nothing
+   written for the former; the latter behaves as unsnoozed.
+9. `sh -n` and `herdr config check` pass.
