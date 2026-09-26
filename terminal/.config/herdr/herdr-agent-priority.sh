@@ -657,21 +657,33 @@ rows)
 
 pick)
   # Runs inside the plugin popup, which gets every keystroke including Escape.
-  # 1-5 re-rank the highlighted row in place and reload the list, so the popup
-  # is both the view and the way to set a priority without leaving it.
+  # alt+1-5 re-rank the highlighted row in place and reload the list, so the
+  # popup is both the view and the way to set a priority without leaving it.
+  #
+  # Typing always filters; every command is an alt chord, so no letter or digit
+  # is ever taken from the query and the query survives each reload. That makes
+  # chains like  herdr, alt+z, ctrl+backspace, smarticipate re, alt+shift+p
+  # one continuous gesture.
+  #
+  # --track --id-nth 1 keeps the cursor on the same pane (field 1 is the hidden
+  # pane id) when a reload re-sorts the list; without it a re-rank moves the row
+  # out from under the cursor and the next alt+shift+p hits a different agent.
+  # fzf's default for ctrl-bspace deletes one character, hence the rebind.
   command -v fzf >/dev/null || die "pick needs fzf"
   sel=$(rows | fzf \
     --delimiter='\t' --with-nth=2.. --no-sort --cycle --ansi \
+    --track --id-nth=1 \
     --prompt='agent > ' \
-    --header='enter jump  ·  1-5 rank (3 = unranked)  ·  alt+p/alt+shift+p nudge  ·  esc close' \
-    --bind="1:execute-silent($SELF set 1 {1})+reload($SELF rows)" \
-    --bind="2:execute-silent($SELF set 2 {1})+reload($SELF rows)" \
-    --bind="3:execute-silent($SELF clear {1})+reload($SELF rows)" \
-    --bind="4:execute-silent($SELF set 4 {1})+reload($SELF rows)" \
-    --bind="5:execute-silent($SELF set 5 {1})+reload($SELF rows)" \
-    --bind="0:execute-silent($SELF clear {1})+reload($SELF rows)" \
+    --header='enter jump  ·  alt+p/alt+shift+p nudge  ·  alt+z snooze  ·  alt+1-5 rank (3 = unranked)  ·  esc close' \
+    --bind='ctrl-bspace:backward-kill-word' \
+    --bind="alt-1:execute-silent($SELF set 1 {1})+reload($SELF rows)" \
+    --bind="alt-2:execute-silent($SELF set 2 {1})+reload($SELF rows)" \
+    --bind="alt-3:execute-silent($SELF clear {1})+reload($SELF rows)" \
+    --bind="alt-4:execute-silent($SELF set 4 {1})+reload($SELF rows)" \
+    --bind="alt-5:execute-silent($SELF set 5 {1})+reload($SELF rows)" \
     --bind="alt-p:execute-silent($SELF up {1})+reload($SELF rows)" \
-    --bind="alt-P:execute-silent($SELF down {1})+reload($SELF rows)" || true)
+    --bind="alt-P:execute-silent($SELF down {1})+reload($SELF rows)" \
+    --bind="alt-z:execute-silent($SELF snooze {1})+reload($SELF rows)" || true)
   [ -n "$sel" ] || exit 0
   target=$(printf '%s\n' "$sel" | cut -f1)
   [ -n "$target" ] || exit 0

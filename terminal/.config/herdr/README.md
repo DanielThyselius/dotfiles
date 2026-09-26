@@ -19,6 +19,7 @@ The prefix is `alt+space`.
 | --- | --- |
 | `alt+p` | Raise the focused session's rank one step. |
 | `alt+shift+p` | Lower it one step. |
+| `alt+z` | Snooze the focused session: 5m, 30m, 2h, 4h, off, one step per press. |
 | `prefix+p` | Open the ranked picker. |
 | `alt+g` | Go to the top of the ranking, cycling within the top band. |
 | `prefix+a` | Unrelated older sweep: jump to whoever is blocked, rank ignored. |
@@ -51,11 +52,15 @@ lands on the rank and the title.
 
 | Key | Does |
 | --- | --- |
+| type | Filter. The query stays put after every action below. |
 | `enter` | Jump to the highlighted session. |
-| `1`–`5` | Rank it outright. The list redraws and the row moves. |
-| `3` | Same thing: unranked. |
 | `alt+p`, `alt+shift+p` | Nudge it up or down, same as outside the picker. |
+| `alt+z` | Step its snooze, same as outside the picker. |
+| `alt+1`–`alt+5` | Rank it outright; `alt+3` is unranked. Picker only — outside it these switch tabs. |
+| `ctrl+backspace` | Delete the previous word of the query. |
 | `esc` | Close. |
+
+Snoozed rows show `zz HH:MM`, their wake time, dimmed and last in their rank.
 
 ## What alt+g does
 
@@ -69,13 +74,20 @@ When the band holds exactly one session and you are already on it, it says so
 instead of moving. Answering a blocked agent makes it start working, and
 working agents are not in the queue, so it steps aside on its own.
 
-To go somewhere else deliberately, use the picker rather than demoting. "Not
-right now" is a different statement from "less important", and demoting to get
-past something turns the rank into a schedule within a week.
+If it is still there and you have nothing to do in it, one of two things is
+true. Its rank is stale, so lower it with `alt+shift+p`. Or it is waiting on
+someone else — another agent's review, a human, an email — so snooze it with
+`alt+z`. A snoozed session is out of the queue until its time is up, then counts
+again; nothing announces it. The toast offers the demote and picker keys, read
+from `config.toml`.
 
-Everything except `working` is a candidate: blocked, done and idle. Within a
-rank the order is blocked first, then done, then idle, then longest-waiting,
-which is deterministic so the top does not wander.
+Everything except `working` and snoozed sessions is a candidate: blocked, done
+and idle. Within a rank the order is blocked first, then done, then idle, then
+longest-waiting, which is deterministic so the top does not wander.
+
+If the queue is empty but something is only snoozed rather than actually done,
+alt+g says so instead of going quiet: it toasts "Everything waiting is snoozed
+· next back HH:MM" rather than doing nothing silently.
 
 ## Why there is no fork
 
@@ -103,6 +115,8 @@ exists only to run it at the right moments.
 | Path | Holds |
 | --- | --- |
 | `~/.local/state/herdr/agent-priority` | The ranks. This is the source of truth. |
+| `~/.local/state/herdr/agent-snooze` | Active snoozes: pane, wake time, step. |
+| `~/.local/state/herdr/agent-priority.lock` | Serialises writes to both stores. |
 | `~/.local/state/herdr/agent-priority.log` | Every invocation, for when a key looks dead. |
 | `~/.local/state/herdr/agent-priority.selection` | The picker handing its choice back. |
 | `~/.local/state/herdr/agent-priority.notify-id` | The toast being replaced. |
@@ -123,8 +137,8 @@ script speaks to the socket directly. `ui.agent_panel_sort = "priority"` in
 `config.toml` is therefore inert, and is kept only as the fallback if the view
 is ever cleared.
 
-Subcommands, if you need them by hand: `up`, `down`, `set N`, `clear`, `goto`,
-`open`, `pick`, `rows`, `stamp`, `view`, `list`. `list` prints the queue that
+Subcommands, if you need them by hand: `up`, `down`, `set N`, `clear`, `snooze`,
+`goto`, `open`, `pick`, `rows`, `stamp`, `view`, `list`. `list` prints the queue that
 `alt+g` walks, in order, without moving anything.
 
 ## When something looks dead

@@ -150,8 +150,8 @@ focus_agent         = "prefix+1..9"
 #
 # COST: alt+f is readline's forward-word. herdr grabs the key first, so
 # word-forward stops working in every shell inside herdr — alt+b (backward-word)
-# still works, so the pair becomes lopsided. alt+z carries the same mnemonic
-# with no readline collision if that trade turns out to bite.
+# still works, so the pair becomes lopsided. alt+z would have been the
+# fallback, but it is now agent snooze.
 zoom                = "alt+f"
 
 # Direct key because zoom cannot hide the sidebar itself (see [ui] below), so
@@ -262,9 +262,10 @@ description = "Go to agent needing attention"
 # reading it, so it keeps the cheap key; opening a whole view is deliberate, so
 # it sits on the prefix layer.
 #
-# Inside the picker the same two keys nudge the HIGHLIGHTED row, so alt+p means
-# one thing everywhere. 1-5 set a rank outright and the list redraws in place,
-# 3 being the unranked middle rather than a real rank.
+# Inside the picker the same keys act on the HIGHLIGHTED row: alt+p, alt+shift+p
+# and alt+z mean one thing everywhere. alt+1-5 set a rank outright, but only in
+# the picker — outside it they are switch_tab. Typing always filters, and the
+# query survives each action, so several rows can be re-ranked in one go.
 #
 # The keybind runs `open`, not `plugin pane open`, because the focusing half has
 # to happen OUTSIDE the popup: focusing from inside returns ok and the API even
@@ -274,9 +275,15 @@ description = "Go to agent needing attention"
 # alt+g goes to the TOP of the ranking and stays there. It does not walk down:
 # pressing past the thing you called most important is how a ranking rots into a
 # to-do list. When you are already on it, it says so instead of moving. The
-# queue already ignores working agents, so answering one makes it step aside by
-# itself. If it is still there, its rank is usually stale: the toast suggests
-# alt+shift+p first and the picker second, both read live from this file.
+# queue already ignores working and snoozed agents, so answering one — or
+# snoozing it — makes it step aside by itself. If it is still there, its rank is
+# usually stale: the toast suggests alt+shift+p first and the picker second,
+# both read live from this file.
+#
+# alt+z snoozes the focused session: 5m, 30m, 2h, 4h, off, one rung per press.
+# A snoozed session leaves the alt+g queue until its time is up and then counts
+# again — nothing fires at expiry. It is for "waiting on someone else", which is
+# a statement about timing; alt+shift+p is for a rank that has gone stale.
 #
 # The blocked-first sweep stays on prefix+a, since blocked is the rare state
 # here, often zero of thirty.
@@ -313,6 +320,12 @@ key = "alt+g"
 type = "shell"
 command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh goto"'
 description = "Go to next highest-priority agent"
+
+[[keys.command]]
+key = "alt+z"
+type = "shell"
+command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh snooze"'
+description = "Snooze agent (5m/30m/2h/4h/off)"
 
 
 # Moving a pane BETWEEN tabs. herdr has no native action for this at all — no
