@@ -503,8 +503,19 @@ rows() {
   tabs=$(herdr tab list |
     jq -c '[.result.tabs[] | {key: .tab_id, value: (.label // .tab_id)}] | from_entries')
 
+  # Same failing-open read as queue(): a failing snoozes_active must not
+  # abort the reload, it should just mean nothing shows as snoozed. from_entries
+  # keeps the LAST entry for a duplicate key, which would silently pick the
+  # wrong wake time if the store ever held two lines for one pane -- it can't,
+  # because both writers (store_set-alike snooze_step and prune) always drop a
+  # pane's existing line before appending its new one, so at most one line per
+  # pane ever reaches this map.
+  ids=$(snoozes_active) || { log "rows: snooze read failed, not marking"; ids=''; }
+  snoozed=$(printf '%s\n' "$ids" | jq -R -s -c \
+    '[split("\n")[] | select(length > 0) | split("\t") | {key: .[0], value: (.[1] | tonumber)}] | from_entries')
+
   herdr agent list |
-    jq -r --argjson def "$DEFAULT" --argjson ws "$ws" --argjson tabs "$tabs" '
+    jq -r --argjson def "$DEFAULT" --argjson ws "$ws" --argjson tabs "$tabs" --argjson snoozed "$snoozed" '
     [ .result.agents[]
       | { pane_id,
           focused,
@@ -514,8 +525,10 @@ rows() {
           title: (.terminal_title_stripped // .terminal_title // ""),
           ranked: (((.tokens.pri // "") | length) > 0),
           seq: .state_change_seq,
+          wake: $snoozed[.pane_id],
           pri: (((.tokens.pri // "") | ltrimstr("P") | tonumber?) // $def) } ]
     | sort_by(-.pri,
+        (if .wake then 1 else 0 end),
         (if .status == "blocked" then 0
          elif .status == "done" then 1
          elif .status == "working" then 2
@@ -524,7 +537,7 @@ rows() {
     | .[]
     | [ .pane_id,
         (if .ranked then "P\(.pri)" else "--" end),
-        .status,
+        (if .wake then "zz \(.wake | strflocaltime("%H:%M"))" else .status end),
         .workspace,
         .tab,
         (if .focused then ">" else " " end),
@@ -538,7 +551,7 @@ rows() {
         else if ($3 == "working") sc = "\033[33m"
         else                      sc = D
         pc = ($2 == "--") ? D : B
-        printf "%s\t%s%s%s %s%-2s%s %s%-7s%s %s%-14s%s %s%-18s%s %s\n", \
+        printf "%s\t%s%s%s %s%-2s%s %s%-8s%s %s%-14s%s %s%-18s%s %s\n", \
           $1, B, $6, R, pc, $2, R, sc, $3, R, D, $4, R, D, $5, R, $7
       }'
 }

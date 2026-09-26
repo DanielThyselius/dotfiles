@@ -275,4 +275,15 @@ for mode in exit errjson empty; do
     "" "$(cat "$FIXTURE_DIR/metadata.log")"
 done
 
+
+# --- picker rows show snoozes ------------------------------------------------
+setup
+run snooze w1:p1
+rows_plain=$(run rows | sed 's/\x1b\[[0-9;]*m//g')
+check "snoozed row sorts last in its band" "w1:p4 w1:p3 w1:p1 w1:p2" \
+  "$(printf '%s\n' "$rows_plain" | cut -f1 | tr '\n' ' ' | sed 's/ $//')"
+wake=$(awk -F'\t' '$1 == "w1:p1" { print $2 }' "$(state agent-snooze)")
+check "snoozed row shows its wake time" "yes" \
+  "$(printf '%s\n' "$rows_plain" | grep '^w1:p1' | grep -qF "zz $(date -d "@$wake" +%H:%M)" && echo yes || echo no)"
+
 exit "$failed"
