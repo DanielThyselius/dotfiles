@@ -173,4 +173,31 @@ run snooze w1:p2 & run snooze w1:p4 & wait
 check "concurrent snoozes of different panes both survive" "3" \
   "$(grep -c '' "$(state agent-snooze)")"
 
+# --- queue skips snoozed panes -------------------------------------------------
+setup
+check "baseline queue" "w1:p1 w1:p4 w1:p2" "$(queue_ids)"
+run snooze w1:p1
+check "a snoozed pane leaves the queue" "w1:p4 w1:p2" "$(queue_ids)"
+
+setup
+mkdir -p "$XDG_STATE_HOME/herdr"
+printf 'w1:p1\t%s\t5\n' $(( $(date +%s) - 1 )) >"$(state agent-snooze)"
+check "an expired snooze is back in the queue" "w1:p1 w1:p4 w1:p2" "$(queue_ids)"
+
+setup
+# Base fixture as-is: w1:p2 (idle, P3) is focused, outside the P5 band, so
+# goto's "step off the currently-focused band member" logic can't produce
+# w1:p4 on its own — only the queue-level snooze filter can. Without the
+# filter, goto from outside the band lands on the band's first member, the
+# snoozed w1:p1, which discriminates this from the earlier (fixture-forced)
+# version of the test that passed even pre-fix.
+run snooze w1:p1
+run goto
+check "goto from outside the band skips the snoozed pane" "yes" \
+  "$(grep -q 'goto focusing w1:p4' "$(state agent-priority.log)" && echo yes || echo no)"
+check "goto actually focused w1:p4" "yes" \
+  "$(grep -qF 'agent focus w1:p4' "$FIXTURE_DIR/calls.log" && echo yes || echo no)"
+check "goto did not focus the snoozed pane" "no" \
+  "$(grep -qF 'agent focus w1:p1' "$FIXTURE_DIR/calls.log" && echo yes || echo no)"
+
 exit "$failed"

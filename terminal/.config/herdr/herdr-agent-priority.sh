@@ -383,13 +383,16 @@ focus_pane() { # focus_pane <pane_id>
 # walks off somewhere new on every press. state_change_seq is monotonic and does
 # not move when a pane is merely focused.
 #
-# Only blocked and done are candidates. Working agents want nothing and idle
-# ones have already been dealt with.
 queue() {
-  herdr agent list | jq -r --argjson def "$DEFAULT" '
+  # Snoozed panes are not in the queue at all, so alt+g cannot land on them.
+  # IN rather than `inside`: on arrays of strings `inside` matches substrings,
+  # so "w1:p1" would count as inside ["w1:p10"].
+  snoozed=$(snoozes_active | cut -f1 | jq -R -s -c 'split("\n") | map(select(length > 0))')
+  herdr agent list | jq -r --argjson def "$DEFAULT" --argjson snoozed "$snoozed" '
     [ .result.agents[]
       | select(.agent_status == "blocked" or .agent_status == "done"
                or .agent_status == "idle")
+      | select(.pane_id | IN($snoozed[]) | not)
       | { pane_id,
           focused,
           status: .agent_status,
