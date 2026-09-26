@@ -109,7 +109,9 @@ check "logs that pane was not live" "yes" \
   "$(grep -qF 'not a live agent: w9:nope' "$(state agent-priority.log)" && echo yes || echo no)"
 
 # --- snooze ladder -------------------------------------------------------------
-snooze_step_of() { awk -F'\t' -v p="$1" '$1 == p { print $3 }' "$(state agent-snooze)"; }
+# Tolerant of a missing store: a script that dies before creating one must
+# show up here as a FAIL on the assertion, not an aborted runner.
+snooze_step_of() { awk -F'\t' -v p="$1" '$1 == p { print $3 }' "$(state agent-snooze)" 2>/dev/null || true; }
 
 setup
 steps=''
@@ -120,11 +122,13 @@ done
 check "snooze ladder 5,30,120,240,off" " 5 30 120 240 " "$steps"
 check "snooze toast names duration" "yes" \
   "$(grep -qF 'Snoozed 5m' "$FIXTURE_DIR/toasts.log" && echo yes || echo no)"
+check "fifth press's toast is the off rung" "yes" \
+  "$(tail -n1 "$FIXTURE_DIR/toasts.log" | grep -qF 'Snooze off' && echo yes || echo no)"
 
 setup
 before=$(date +%s)
 run snooze w1:p1
-wake=$(awk -F'\t' '$1 == "w1:p1" { print $2 }' "$(state agent-snooze)")
+wake=$(awk -F'\t' '$1 == "w1:p1" { print $2 }' "$(state agent-snooze)" 2>/dev/null || true)
 check "5m wake is 300s from now" "yes" \
   "$([ "$wake" -ge $((before + 300)) ] && [ "$wake" -le $((before + 302)) ] && echo yes || echo no)"
 
@@ -139,6 +143,22 @@ mkdir -p "$XDG_STATE_HOME/herdr"
 printf 'w1:p1\t%s\t30\n' $(( $(date +%s) - 1 )) >"$(state agent-snooze)"
 run snooze w1:p1
 check "an expired snooze restarts at 5m" "5" "$(snooze_step_of w1:p1)"
+
+setup
+mkdir -p "$XDG_STATE_HOME/herdr"
+printf 'w1:p2\textra\t%s\t30\n' $(( $(date +%s) + 600 )) >"$(state agent-snooze)"
+printf 'w1:p4\t%s\t30\n' $(( $(date +%s) + 100000 )) >>"$(state agent-snooze)"
+run snooze w1:p1
+check "a 4-field line and a wake past the 4h cap are dropped, not carried as snoozed" \
+  "w1:p1" "$(awk -F'\t' '{ print $1 }' "$(state agent-snooze)" | tr '\n' ' ' | sed 's/ $//')"
+
+setup
+mkdir -p "$XDG_STATE_HOME/herdr"
+printf 'w1:p4\t%s\t30\n' $(( $(date +%s) - 1 )) >"$(state agent-snooze)"
+printf 'w1:p2\t%s\t15\n' $(( $(date +%s) + 600 )) >>"$(state agent-snooze)"
+run snooze w1:p1
+check "pruning drops an expired line and an off-ladder line for other panes too" \
+  "w1:p1" "$(awk -F'\t' '{ print $1 }' "$(state agent-snooze)" | tr '\n' ' ' | sed 's/ $//')"
 
 setup
 run snooze w9:nope

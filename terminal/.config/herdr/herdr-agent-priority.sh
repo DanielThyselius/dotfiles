@@ -73,8 +73,8 @@ NOTIFY_ID="$STATE_DIR/agent-priority.notify-id"
 LOCK="$STATE_DIR/agent-priority.lock"
 
 mkdir -p "$STATE_DIR"
-[ -f "$STORE" ] || : >"$STORE"
-[ -f "$SNOOZE" ] || : >"$SNOOZE"
+[ -f "$STORE" ] || : >>"$STORE"
+[ -f "$SNOOZE" ] || : >>"$SNOOZE"
 
 die() { echo "$*" >&2; exit 2; }
 
@@ -216,11 +216,15 @@ stamp_one() { # stamp_one <pane_id> <priority|"">
 # rather than derived from the time left, because a half-used 30m would
 # otherwise look like a fresh 15m and the next press would pick the wrong rung.
 
-# Active snoozes only. A line with a non-numeric wake, a step off the ladder, or
-# a wake in the past is not a snooze, and every rewrite drops it.
+# Active snoozes only. A line is dropped unless it has exactly 3 fields, the
+# wake is numeric and no more than 4h (the longest rung) from now — further out
+# than that is not a real snooze, whatever put it there — the step is one of
+# the four rungs, and the wake is still in the future. Every rewrite drops
+# anything that fails these checks.
 snoozes_active() {
   awk -F'\t' -v now="$(date +%s)" \
-    '$2 ~ /^[0-9]+$/ && $3 ~ /^(5|30|120|240)$/ && $2 + 0 > now + 0' "$SNOOZE"
+    'NF == 3 && $2 ~ /^[0-9]+$/ && $3 ~ /^(5|30|120|240)$/ \
+     && $2 + 0 > now + 0 && $2 + 0 <= now + 240 * 60' "$SNOOZE"
 }
 
 snooze_label() { # snooze_label <minutes>: 5m, 30m, 2h, 4h
@@ -228,7 +232,14 @@ snooze_label() { # snooze_label <minutes>: 5m, 30m, 2h, 4h
 }
 
 snooze_step() { # snooze_step <pane_id>; run under `locked`; sets $step and $wake
-  cur=$(snoozes_active | awk -F'\t' -v p="$1" '$1 == p { print $3; exit }')
+  # The store is read exactly once here, into a file rather than a pipe, so a
+  # failing read (a corrupt store, a missing file) aborts loudly under set -e
+  # instead of a pipeline silently swallowing the first awk's exit status —
+  # which piping snoozes_active straight into the write's filter used to do,
+  # and could have replaced the whole store with just this pane's line.
+  snap=$(mktemp "$SNOOZE.XXXXXX")
+  snoozes_active >"$snap"
+  cur=$(awk -F'\t' -v p="$1" '$1 == p { print $3; exit }' "$snap")
   case $cur in
   '') step=5 ;;
   5) step=30 ;;
@@ -239,12 +250,13 @@ snooze_step() { # snooze_step <pane_id>; run under `locked`; sets $step and $wak
   crit_delay
   wake=''
   tmp=$(mktemp "$SNOOZE.XXXXXX")
-  snoozes_active | awk -F'\t' -v p="$1" '$1 != p' >"$tmp"
+  awk -F'\t' -v p="$1" '$1 != p' "$snap" >"$tmp"
   if [ -n "$step" ]; then
     wake=$(($(date +%s) + step * 60))
     printf '%s\t%s\t%s\n' "$1" "$wake" "$step" >>"$tmp"
   fi
   mv "$tmp" "$SNOOZE"
+  rm -f "$snap"
 }
 
 # Tell herdr to order the agent panel by the hidden sort token. Ranked first,
