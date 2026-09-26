@@ -1,14 +1,25 @@
 #!/bin/sh
-# Stub herdr CLI for the offline tests. Serves $FIXTURE_DIR/agents.json and
-# records writes instead of sending them anywhere.
+# Stub herdr CLI for the offline tests. Serves $FIXTURE_DIR/agents.json,
+# records writes instead of sending them anywhere, and refuses (loudly, with a
+# nonzero exit) any call this fixture does not model, so a script path this
+# stub never learned about fails the test instead of being silently ignored.
 set -eu
 F=$FIXTURE_DIR
+printf '%s\n' "$*" >>"$F/calls.log"
 case "$1 ${2:-}" in
 "agent list") cat "$F/agents.json" ;;
 "pane list")
   jq '{result: {panes: [.result.agents[] | {pane_id, workspace_id, tab_id}]}}' "$F/agents.json" ;;
-"workspace list") echo '{"result":{"workspaces":[{"workspace_id":"w1","label":"ws"}]}}' ;;
-"tab list") echo '{"result":{"tabs":[{"tab_id":"w1:t1","label":"tab"}]}}' ;;
+"workspace list")
+  jq '{result: {workspaces: ([.result.agents[].workspace_id] | unique
+        | map({workspace_id: ., label: ("ws-" + .)}))}}' "$F/agents.json" ;;
+"tab list")
+  jq '{result: {tabs: ([.result.agents[].tab_id] | unique
+        | map({tab_id: ., label: ("tab-" + .)}))}}' "$F/agents.json" ;;
 "pane report-metadata") printf '%s\n' "$*" >>"$F/metadata.log" ;;
-*) : ;;
+"agent focus" | "workspace focus" | "tab focus") : ;;
+*)
+  echo "stub herdr: unmodelled: $*" >&2
+  exit 1
+  ;;
 esac

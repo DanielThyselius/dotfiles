@@ -5,8 +5,11 @@
 #
 # A stub `herdr` on PATH serves agents.json; HOME and XDG_STATE_HOME point at a
 # temp dir, so nothing reaches the live session — set_view's socket lives under
-# $HOME and simply is not there. The stub's tokens never change after a write,
-# so rank assertions read the store file, not a later `agent list`.
+# $HOME and simply is not there. HERDR_SOCKET_PATH is also pointed at a temp
+# path that never exists, so a stray call that bypasses the stub (or a helper
+# that talks to the socket directly) fails instead of reaching the live
+# session. The stub's tokens never change after a write, so rank assertions
+# read the store file, not a later `agent list`.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
@@ -14,6 +17,9 @@ SCRIPT="$REPO/terminal/.config/herdr/herdr-agent-priority.sh"
 CONFIG="$REPO/terminal/.config/herdr/config.toml"
 PATH="$HERE/bin:$PATH"
 export PATH
+
+ROOT=$(mktemp -d)
+trap 'rm -rf "$ROOT"' EXIT
 
 failed=0
 check() { # check <description> <expected> <actual>
@@ -26,17 +32,24 @@ check() { # check <description> <expected> <actual>
 }
 
 setup() {
-  T=$(mktemp -d)
+  T=$(mktemp -d "$ROOT/t.XXXXXX")
   HOME="$T/home"
   XDG_STATE_HOME="$T/state"
   FIXTURE_DIR="$T/fx"
   HERDR_CONFIG_PATH="$CONFIG"
   export HOME XDG_STATE_HOME FIXTURE_DIR HERDR_CONFIG_PATH
   unset AGENT_PRIORITY_CRIT_DELAY 2>/dev/null || true
+  # Strip anything that could point this run at a real herdr session, so a
+  # call that slips past the stub fails loudly instead of reaching it.
+  unset HERDR_SOCKET_PATH HERDR_BIN_PATH HERDR_PANE_ID HERDR_TAB_ID \
+    HERDR_WORKSPACE_ID HERDR_ENV XDG_CONFIG_HOME 2>/dev/null || true
+  HERDR_SOCKET_PATH="$T/none.sock"
+  export HERDR_SOCKET_PATH
   mkdir -p "$HOME" "$FIXTURE_DIR"
   cp "$HERE/agents.json" "$FIXTURE_DIR/agents.json"
   : >"$FIXTURE_DIR/toasts.log"
   : >"$FIXTURE_DIR/metadata.log"
+  : >"$FIXTURE_DIR/calls.log"
 }
 
 # Never abort the runner: a failing script (e.g. "unknown command" before a
@@ -65,7 +78,7 @@ fixture '.result.agents |= map(select(.pane_id != "w1:p4")
 printf '[keys]\nprefix = "alt+space"\n' >"$T/bare.toml"
 HERDR_CONFIG_PATH="$T/bare.toml" run goto
 check "goto hint is omitted when nothing is bound" \
-  "no" \
-  "$(grep -qF ' to lower it' "$FIXTURE_DIR/toasts.log" && echo yes || echo no)"
+  "-- Top of the ranking alpha" \
+  "$(sed 's/.* -- /-- /' "$FIXTURE_DIR/toasts.log")"
 
 exit "$failed"

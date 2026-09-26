@@ -123,7 +123,12 @@ import re, sys, tomllib
 sub, path = sys.argv[1], sys.argv[2]
 with open(path, "rb") as f:
     keys = tomllib.load(f).get("keys", {})
-pat = re.compile(r"herdr-agent-priority\.sh\s+" + re.escape(sub) + r"\b")
+# A word boundary isn't enough: "open" is also a boundary inside "open-foo",
+# since - is not a word character. Require what actually follows a shell
+# token instead: whitespace, a closing quote, or end of string.
+quote_chars = '"' + "'"
+pat = re.compile(r"herdr-agent-priority\.sh\s+" + re.escape(sub) +
+                  r"(?=\s|[" + quote_chars + r"]|$)")
 for c in keys.get("command", []):
     if pat.search(c.get("command", "")):
         k = c.get("key", "")
