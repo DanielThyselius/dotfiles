@@ -68,11 +68,18 @@ STORE="$STATE_DIR/agent-priority"
 SELECTION="$STATE_DIR/agent-priority.selection"
 LOG="$STATE_DIR/agent-priority.log"
 NOTIFY_ID="$STATE_DIR/agent-priority.notify-id"
+LOCK="$STATE_DIR/agent-priority.lock"
 
 mkdir -p "$STATE_DIR"
 [ -f "$STORE" ] || : >"$STORE"
 
 die() { echo "$*" >&2; exit 2; }
+
+# Test seam. Widens the gap between reading a store and writing it back, so the
+# concurrency tests can tell a locked store from an unlocked one — without it
+# the window is a few milliseconds and the race only shows up by luck. Unset in
+# normal use, where it costs one test.
+crit_delay() { [ -z "${AGENT_PRIORITY_CRIT_DELAY:-}" ] || sleep "$AGENT_PRIORITY_CRIT_DELAY"; }
 
 # Every invocation leaves a line. Keybind commands are spawned by the server
 # with no terminal attached, so a failure here is otherwise completely silent —
@@ -219,9 +226,41 @@ s.recv(65536)
 PYVIEW
 }
 
-apply() { # apply <pane_id> <priority|"">
+# Every read-modify-write of a store runs under one exclusive lock. Each
+# keypress is its own process, and repeated presses are the intended
+# interaction, so without it two quick presses both read the old value and one
+# step is lost. The brace group runs in THIS shell, so a critical section's
+# results (next, step, wake) are visible to the caller afterwards; the lock is
+# released when fd 9 closes at the end of the group, or when the process exits.
+locked() { # locked <command...>
+  { flock 9; "$@"; } 9>"$LOCK"
+}
+
+# Critical sections, run under `locked`. The metadata stamp is inside on
+# purpose: stamped outside, two presses could write 4 then 5 but stamp 5 then 4,
+# leaving the sidebar disagreeing with the store. Toasts stay outside.
+rank_write() { # rank_write <pane_id> <priority|"">
   store_set "$1" "$2"
   stamp_one "$1" "$2"
+}
+
+rank_step() { # rank_step <pane_id> <up|down>; sets $next
+  cur=$(stored "$1")
+  case $cur in 1 | 2 | 3 | 4 | 5) ;; *) cur=$DEFAULT ;; esac
+  crit_delay
+  if [ "$2" = up ]; then
+    next=$((cur + 1))
+    [ "$next" -le 5 ] || next=5
+  else
+    next=$((cur - 1))
+    [ "$next" -ge 1 ] || next=1
+  fi
+  [ "$next" != "$DEFAULT" ] || next=''
+  rank_write "$1" "$next"
+}
+
+apply() { # apply <pane_id> <priority|"">
+  locked rank_write "$1" "$2"
   notify "$1" "$2"
 }
 
@@ -359,17 +398,8 @@ case $cmd in
 up | down)
   pane=$(target_pane "${1:-}")
   [ -n "$pane" ] || exit 0
-  cur=$(stored "$pane")
-  case $cur in 1 | 2 | 3 | 4 | 5) ;; *) cur=$DEFAULT ;; esac
-  if [ "$cmd" = up ]; then
-    next=$((cur + 1))
-    [ "$next" -le 5 ] || next=5
-  else
-    next=$((cur - 1))
-    [ "$next" -ge 1 ] || next=1
-  fi
-  [ "$next" != "$DEFAULT" ] || next=''
-  apply "$pane" "$next"
+  locked rank_step "$pane" "$cmd"
+  notify "$pane" "$next"
   ;;
 
 set)

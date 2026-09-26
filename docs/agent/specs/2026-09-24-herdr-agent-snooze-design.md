@@ -47,9 +47,11 @@ intended interaction, so this has to hold.
 Every read-modify-write of either store takes one exclusive lock,
 `$STATE_DIR/agent-priority.lock`, via `flock` (util-linux). The critical section
 is: read the line, compute the next value (ladder step or rank step), write the
-file. The herdr metadata stamp, the toast and any other API calls happen outside
-it, so a slow API call never holds up the next press. `stamp`'s cleanup of both
-files runs under the same lock.
+file. The rank path's metadata stamp (`report-metadata`) runs inside it, so the
+sidebar token is written in the same order as the store; stamped outside, two
+presses could write 4 then 5 but stamp 5 then 4. The title lookup and the
+toast happen outside, so a slow notification never holds up the next press.
+`stamp`'s cleanup of both files runs under the same lock.
 
 This also fixes the existing rank path: `up`/`down` have the same unlocked
 read-then-write today, and a quick double alt+p can currently land one step.

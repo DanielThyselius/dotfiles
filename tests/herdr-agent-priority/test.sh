@@ -81,4 +81,12 @@ check "goto hint is omitted when nothing is bound" \
   "-- Top of the ranking alpha" \
   "$(sed 's/.* -- /-- /' "$FIXTURE_DIR/toasts.log")"
 
+# --- lock: concurrent nudges are not lost ------------------------------------
+setup
+AGENT_PRIORITY_CRIT_DELAY=0.3
+export AGENT_PRIORITY_CRIT_DELAY
+run up w1:p2 & run up w1:p2 & run up w1:p2 & wait
+check "three concurrent ups from unranked land on 5" \
+  "w1:p2	5" "$(cat "$(state agent-priority)")"
+
 exit "$failed"
