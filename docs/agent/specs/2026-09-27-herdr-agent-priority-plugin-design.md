@@ -122,8 +122,11 @@ ignored, use the bare `"$snz"`). An unset token renders nothing, as an unranked
 
 Offline, via the existing harness (the stub `herdr` appends every
 `report-metadata` call to `metadata.log`). The ticker gets a test seam,
-`AGENT_PRIORITY_TICK_ONCE=1`, that runs exactly one pass and exits, so tests
-never sleep or background anything.
+`AGENT_PRIORITY_TICK_ONCE=1`, that runs exactly one pass and exits, and the
+harness puts a stub `setsid` on `PATH` that records its arguments and open fds
+and does **not** run the command — so `snooze`/`stamp` never start a real ticker
+in tests, and ticker behaviour is tested by calling `ticker` directly with the
+seam. Tests never sleep or background anything.
 
 1. `snooze w1:p1` → a `--source agent-snooze` report for w1:p1 with
    `--token snz=zz 5m` and `--ttl-ms 90000`.
