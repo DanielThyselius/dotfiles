@@ -44,38 +44,73 @@ The label is its own metadata report:
 
 ### Mechanism: one ticker
 
-A single background process, the **ticker**, owns every `snz` write while any
-snooze is active.
+A single background process, the **ticker**, refreshes every `snz` label once a
+minute while any snooze is active.
 
-- **Singleton.** It holds `flock -n` on `$STATE_DIR/agent-snooze.ticker.lock`
-  for its lifetime; a second start finds the lock taken and exits at once. So
-  `snooze` and `stamp` just "ensure the ticker is running", however often they
-  fire (stamp runs on every `pane.agent_detected`).
-- **Loop, once a minute:** read the active snoozes and the live pane list; for
-  each active snooze of a live pane, recompute the time left *immediately before
-  its report* and report `snz=zz <left>` with `--ttl-ms 90000`. A snooze whose
-  time left is ≤ 0 by then is skipped and its label cleared. Format: `Nm` under
-  an hour, `NhMm` above (`2h10m`, `4h`, `1h5m`), rounding the minutes up so a
-  fresh 5m reads `5m`, not `4m`.
-- **Exit:** when no active snooze remains; after an agent-list or pane-list
-  failure it logs and sleeps to the next tick rather than exiting (a transient
-  server error must not kill the display).
-- **Self-healing:** every label carries a 90 s TTL, so if the ticker dies — or a
-  clear is lost — the label is gone within 90 s instead of showing a wrong time.
-  Nothing tracks PIDs: `snooze` off or a closed pane simply removes the store
-  line, and the ticker stops writing that label on its next pass.
-- **Store reads** are read-only snapshots via `snoozes_active`; the ticker never
-  takes the store lock and never writes the store.
-- **Starting it** (from `snooze` and from `stamp`): after the critical section,
-  never inside it, with fd 9 closed and detached from the caller —
-  `setsid "$SELF" ticker 9>&- </dev/null >/dev/null 2>&1 &` — per the `locked`
-  contract (a child holding fd 9 would hold the store lock for hours).
+**Every label write, from anyone, goes through the store lock.** `snooze`
+writes its label inside its critical section (as the rank stamp does), `prune`
+inside its own, and the ticker does each pass as a critical section too:
+`locked tick_pass`. Inside it the ticker rereads the snooze store and the agent
+list and reports from that fresh state, so it can never publish a label that a
+`snooze` press has since extended or cleared — the press either finished before
+the pass (the pass sees it) or waits for the pass to finish (and overwrites it).
+A pass is a handful of local `report-metadata` calls, so it holds the lock for
+tens of milliseconds.
+
+`tick_pass`, in order:
+
+1. Read the active snoozes (`snoozes_active`, failure → log, skip this pass)
+   and the agent list with each agent's current `snz` token (failure → log,
+   skip).
+2. For each active snooze of a live agent: compute `remaining_ms` from `now`
+   *immediately before its report*; if ≤ 0, treat it as not active (step 3);
+   else report `snz=zz <left>` with `--ttl-ms min(90000, remaining_ms)`, so a
+   label can never outlive its wake time.
+3. Reconcile: every live agent whose current `snz` token is non-empty but which
+   has no active snooze (expired, switched off, hand-edited away) gets
+   `--clear-token snz`. This is driven by the agent list's tokens, not by the
+   snooze snapshot, because `snoozes_active` has already filtered expired lines
+   out.
+4. Decide whether to keep running — see the handoff below.
+
+Format of `<left>`: minutes rounded up, `Nm` under an hour, `NhMm` from an hour
+(`2h10m`, `4h`, `1h5m`), so a fresh 5m reads `5m`, not `4m`.
+
+**Singleton and exit/start handoff.** The ticker holds `flock -n` on
+`$STATE_DIR/agent-snooze.ticker.lock` (fd 8) for its lifetime; a start that
+finds it taken exits at once. The race to prevent: a ticker decides to exit, a
+new snooze starts a replacement, the replacement sees the singleton lock still
+held and exits, then the old ticker exits — leaving the new snooze with no
+updater. It is closed by ordering both decisions under the store lock:
+
+- The ticker decides to exit only at the end of `tick_pass`, *inside* the store
+  critical section, when it found no active snooze — and it releases the
+  singleton lock (`exec 8>&-`) right there, still inside, before the store lock
+  is released.
+- `snooze` writes the store line inside its critical section and starts the
+  ticker only *after* releasing the store lock.
+
+So either the ticker's final pass ran first — the singleton is already free
+when `snooze` starts a replacement, which gets it — or the snooze ran first and
+the pass sees the new line and keeps running (the replacement's `flock -n`
+fails, correctly). `stamp` starts the ticker the same way, after `locked prune`.
+
+**Self-healing.** Labels carry at most a 90 s TTL, so if the ticker dies, the
+label is gone within 90 s rather than showing a wrong time; the next `snooze`
+or `stamp` starts a new ticker. Nothing tracks PIDs.
+
+**Starting it** (from `snooze` and `stamp`): after the critical section, never
+inside it, detached, with fd 9 closed —
+`setsid "$SELF" ticker 9>&- </dev/null >/dev/null 2>&1 &` — per the `locked`
+contract. The ticker's own `locked tick_pass` opens fd 9 per pass and closes it
+at the end of each, so between passes (the minute of sleep) it holds no store
+lock.
 
 ### Writes outside the ticker
 
 | When | What |
 | --- | --- |
-| `snooze` sets a rung | Inside the critical section: report `snz` once with the fresh time left and `--ttl-ms 90000`, so the label appears immediately, not at the next tick. Then, outside it, ensure the ticker. |
+| `snooze` sets a rung | Inside the critical section: report `snz` once with the fresh time left and `--ttl-ms min(90000, remaining_ms)`, so the label appears immediately, not at the next tick. Then, outside it, ensure the ticker. |
 | `snooze` reaches off | Inside the critical section: `--clear-token snz` under source `agent-snooze`. A failure is logged; the 90 s TTL removes the label anyway. |
 | `stamp` | Ensure the ticker if any snooze is active (after `locked prune`). Also, inside `prune`: clear `snz` on every live agent with no active snooze but a non-empty `snz` token, so a label can never outlive its snooze by more than a stamp. |
 
@@ -132,9 +167,20 @@ seam. Tests never sleep or background anything.
    `--token snz=zz 5m` and `--ttl-ms 90000`.
 2. Pressing through to off → the last `agent-snooze` call for w1:p1 is
    `--clear-token snz`.
-3. One ticker pass with snoozes at +600 s, +7800 s, and one already expired →
-   `zz 10m`, `zz 2h10m`, and a clear for the expired one; no reports for a
+3. One ticker pass with snoozes at +600 s and +7800 s, a fixture agent whose
+   `snz` token is set but whose snooze line is expired, and a snooze for a gone
+   pane → `zz 10m` and `zz 2h10m` with `--ttl-ms 90000`, a `--clear-token snz`
+   for the expired one (driven by the token, not the snapshot), nothing for the
    gone pane.
+3b. TTL clamp: a snooze with 20 s left → reported with `--ttl-ms` ≤ 20000.
+3c. Ticker writes under the store lock: with `AGENT_PRIORITY_CRIT_DELAY` set,
+   start a `snooze` (off rung) and a ticker pass concurrently; the final
+   `agent-snooze` call for that pane in metadata.log matches the final store
+   state (cleared), never a stale `zz` after the clear.
+3d. Handoff: with the singleton lock held by a ticker pass that finds no active
+   snooze, assert the singleton lock is free (`flock -n` succeeds) as soon as
+   that pass's store critical section ends; and in the reverse order, a pass
+   that runs after a snooze was written keeps the singleton.
 4. Ticker singleton: with the ticker lock held by the test, a start exits at
    once without writing.
 5. `stamp` with a live pane whose fixture token has `snz` set but no active
@@ -241,7 +287,10 @@ Every command is `["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/agent-priority.sh\" <s
   `/home/user/My Plugins/herdr-agent-priority` works. Tested by building the
   picker's actual bind/reload strings with `SELF` under a spaced path and
   running them through `sh -c`, not just by checking the value of `SELF`.
-- **State location.** `STATE_DIR` becomes `${HERDR_PLUGIN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr/agent-priority}`.
+- **State location.** `STATE_DIR` becomes `${HERDR_PLUGIN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr-agent-priority}`.
+  The fallback is a directory of its own, never inside `…/state/herdr/`, where
+  `agent-priority` is already the name of the rank *file* (a fallback there
+  would make `mkdir -p` fail before migration).
   All state files keep their names. A hand-run `agent-priority.sh list` in a
   plain shell has no `HERDR_PLUGIN_STATE_DIR` and would read the fallback, not
   the plugin's state: the README says to run it as
