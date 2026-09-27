@@ -59,9 +59,10 @@ tens of milliseconds.
 
 `tick_pass`, in order:
 
-1. Read the active snoozes (`snoozes_active`, failure → log, skip this pass)
-   and the agent list with each agent's current `snz` token (failure → log,
-   skip).
+1. Read the active snoozes (`snoozes_active`; failure → log, release the
+   singleton and stop — the next `snooze` or `stamp` starts a fresh ticker)
+   and the agent list with each agent's current `snz` token (failure → log, no
+   labels this pass, but still decide step 4).
 2. For each active snooze of a live agent: compute `remaining_ms` from `now`
    *immediately before its report*; if ≤ 0, treat it as not active (step 3);
    else report `snz=zz <left>` with `--ttl-ms min(90000, remaining_ms)`, so a
@@ -71,7 +72,10 @@ tens of milliseconds.
    `--clear-token snz`. This is driven by the agent list's tokens, not by the
    snooze snapshot, because `snoozes_active` has already filtered expired lines
    out.
-4. Decide whether to keep running — see the handoff below.
+4. Decide whether to keep running — see the handoff below. The decision reads
+   the snooze store, never the agent list: with herdr down the list fails every
+   pass, and a ticker waiting on it would never exit. Driven by the store it
+   stops within 4 h (the longest rung) whatever herdr does.
 
 Format of `<left>`: minutes rounded up, `Nm` under an hour, `NhMm` from an hour
 (`2h10m`, `4h`, `1h5m`), so a fresh 5m reads `5m`, not `4m`.
@@ -101,10 +105,16 @@ or `stamp` starts a new ticker. Nothing tracks PIDs.
 
 **Starting it** (from `snooze` and `stamp`): after the critical section, never
 inside it, detached, with fd 9 closed —
-`setsid "$SELF" ticker 9>&- </dev/null >/dev/null 2>&1 &` — per the `locked`
-contract. The ticker's own `locked tick_pass` opens fd 9 per pass and closes it
-at the end of each, so between passes (the minute of sleep) it holds no store
-lock.
+`setsid -f "$SELF" ticker 9>&- </dev/null >/dev/null 2>&1` — per the `locked`
+contract. `setsid -f` ("Always create a new process", setsid(1)) forks and
+returns at once, so nothing is a background job and a stub `setsid` in tests
+records synchronously. stdio goes to `/dev/null` because a plugin command's
+stdout/stderr are pipes herdr reads to EOF (source `runtime.rs`); a ticker
+holding them would keep its starter "running" and count against herdr's
+32-command limit (`plugin_command_limit_reached`). The ticker's own
+`locked tick_pass` opens fd 9 per pass and closes it at the end of each, and it
+sleeps with `sleep 60 8>&-`, so between passes it holds no store lock and a
+sleeping child never holds the singleton.
 
 ### Writes outside the ticker
 
@@ -122,9 +132,14 @@ truth, the label a projection of it.
 The ticker must survive the keybind / hook / action command that starts it.
 herdr 0.8.2 contains a `plugin_command_limit_reached` error, so herdr may cap or
 reap long-running children. The first implementation step is a live experiment:
-start a `setsid`-detached `sleep 300` that writes a probe file every 30 s, from
-(a) a `type = "shell"` keybind and (b) the plugin's startup hook, and confirm it
-keeps running for 5 minutes and across a `herdr server reload-config`.
+start a `setsid -f`-detached loop that writes a probe file every 30 s for 5
+minutes, from (a) a temporary plugin `[[actions]]` entry invoked with
+`herdr plugin action invoke` — the same `start_plugin_command` path startup and
+event hooks use — and (b) a temporary `type = "shell"` keybind the user presses;
+confirm both run to the end across a `herdr server reload-config`, and that the
+invoking action's plugin-log entry finishes (`succeeded`) rather than staying
+`running`. The startup hook itself is confirmed at the next natural herdr
+restart (the Part 1 live check), never by forcing one.
 
 **Fallback if it cannot:** no ticker. The label shows the wake time instead,
 `zz 14:30`, reported with `--ttl-ms` equal to the time left so herdr removes it
@@ -139,19 +154,20 @@ Both sidebar row templates in `config.toml` gain `$snz` right after `$pri`:
 
 ```toml
 [ui.sidebar.agents]
-rows = [["state_icon", "$idx", "$pri", "$snz", "workspace", "tab"], ["agent"]]
+rows = [["state_icon", "$idx", "$pri", { token = "$snz", dim = true }, "workspace", "tab"], ["agent"]]
 
 [ui.sidebar.agents.rows_by_agent]
 claude = [
-  ["state_icon", "$idx", "$pri", "$snz", { token = "workspace", dim = true }],
+  ["state_icon", "$idx", "$pri", { token = "$snz", dim = true }, { token = "workspace", dim = true }],
   ["terminal_title_stripped"],
 ]
 ```
 
-Dimmed as `{ token = "$snz", dim = true }` if herdr accepts `dim` on a custom
-`$token` (check with `herdr config check`; if the key is reported unknown or
-ignored, use the bare `"$snz"`). An unset token renders nothing, as an unranked
-`$pri` does today.
+Dimmed with `{ token = "$snz", dim = true }`. Checked 2026-09-27: `herdr config
+check` accepts it, and rejects a misspelt style key (`dimm`) with a parse error,
+so the style is validated, not silently ignored; herdr's sidebar code applies a
+token style to custom tokens the same as to built-ins. An unset token renders
+nothing, as an unranked `$pri` does today.
 
 ### Testing
 
@@ -159,9 +175,15 @@ Offline, via the existing harness (the stub `herdr` appends every
 `report-metadata` call to `metadata.log`). The ticker gets a test seam,
 `AGENT_PRIORITY_TICK_ONCE=1`, that runs exactly one pass and exits, and the
 harness puts a stub `setsid` on `PATH` that records its arguments and open fds
-and does **not** run the command — so `snooze`/`stamp` never start a real ticker
-in tests, and ticker behaviour is tested by calling `ticker` directly with the
-seam. Tests never sleep or background anything.
+(from `/proc/$$/fd`, its own shell's) and does **not** run the command — so
+`snooze`/`stamp` never start a real ticker in tests, and ticker behaviour is
+tested by calling `ticker` directly with the seam. A stub `sleep` passes short
+test delays through and refuses `sleep 60`, so a test that forgets the seam
+fails instead of hanging. A second seam, `AGENT_PRIORITY_TICK_PROBE=<file>`,
+makes each pass record — from inside its store critical section, at the end —
+whether the singleton and the store lock are held (`flock -n` on a fresh open
+of each), which is how 3d is observed. Tests never sleep (beyond the script's
+own `AGENT_PRIORITY_CRIT_DELAY`) or background a real ticker.
 
 1. `snooze w1:p1` → a `--source agent-snooze` report for w1:p1 with
    `--token snz=zz 5m` and `--ttl-ms 90000`.
@@ -190,7 +212,7 @@ seam. Tests never sleep or background anything.
    then run `stamp` with the fixture still showing `snz` → the clear is issued.
 7. Rank stamps still use `--source agent-priority` and never carry `--ttl-ms`.
 8. `snooze` and `stamp` start the ticker with fd 9 closed: assert (via a stub
-   `setsid` on PATH that records its open fds from `/proc/self/fd`) that fd 9
+   `setsid` on PATH that records its open fds from `/proc/$$/fd`) that fd 9
    is not open in the child.
 
 Live: the process-lifetime experiment above; then snooze a pane and watch the
@@ -250,7 +272,8 @@ herdr-agent-priority/
   tests/
     test.sh                offline suite (moved from dotfiles)
     agents.json
-    bin/herdr, bin/notify-send
+    config.toml            [keys] prefix + the README keys snippet, byte-for-byte
+    bin/herdr, bin/notify-send, bin/setsid, bin/sleep, bin/fzf
   README.md                what it is, install, config snippets, keys
   LICENSE                  MIT
   .github/workflows/test.yml
@@ -274,19 +297,29 @@ entry point:
 | `open` | `open` | prefix+p |
 
 Every command is `["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/agent-priority.sh\" <sub>"]`.
+`up`, `down` and `snooze` act on the focused pane and declare
+`contexts = ["pane"]`; `goto` and `open` declare `contexts = ["global"]` (the
+values herdr accepts: `global`, `workspace`, `tab`, `pane`, `selection`).
 
 ### Script changes
 
-- **Self location.** `SELF` (used by the picker's reload binds) becomes
-  `${HERDR_PLUGIN_ROOT:-$(dirname "$0")}/agent-priority.sh` instead of
-  `$HOME/.config/herdr/herdr-agent-priority.sh`.
+- **Self location.** `SELF` (used by the picker's reload binds and the ticker
+  start) becomes
+  `${HERDR_PLUGIN_ROOT:-$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)}/agent-priority.sh`
+  instead of `$HOME/.config/herdr/herdr-agent-priority.sh` — absolute, so a
+  child run from another cwd still finds it, and CDPATH-safe.
 - **Shell-safe picker commands.** fzf runs each `execute-silent(...)` and
   `reload(...)` string through a shell, and `$SELF` is interpolated into those
   strings. Every occurrence is shell-quoted (a small `shq` helper that wraps in
   single quotes and escapes embedded ones), so a checkout at
-  `/home/user/My Plugins/herdr-agent-priority` works. Tested by building the
-  picker's actual bind/reload strings with `SELF` under a spaced path and
-  running them through `sh -c`, not just by checking the value of `SELF`.
+  `/home/user/My Plugins/herdr-agent-priority` works. fzf's child shell is
+  pinned with `--with-shell='sh -c'` (its default is `$SHELL -c`, fzf(1)), so the
+  POSIX quoting holds whatever the user's shell is. A path containing `)` is
+  still unsupported (fzf(1): parentheses in an action argument can break its
+  parser). Tested with a stub `fzf` that records its arguments: the picker's
+  actual bind/reload strings, built with `SELF` under a path with a space and a
+  single quote, are run through `sh -c`, not just checked for the value of
+  `SELF`.
 - **State location.** `STATE_DIR` becomes `${HERDR_PLUGIN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr-agent-priority}`.
   The fallback is a directory of its own, never inside `…/state/herdr/`, where
   `agent-priority` is already the name of the rank *file* (a fallback there
@@ -294,17 +327,21 @@ Every command is `["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/agent-priority.sh\" <s
   All state files keep their names. A hand-run `agent-priority.sh list` in a
   plain shell has no `HERDR_PLUGIN_STATE_DIR` and would read the fallback, not
   the plugin's state: the README says to run it as
-  `HERDR_PLUGIN_STATE_DIR=<dir> agent-priority.sh list`, with `<dir>` whatever
-  herdr reports (find how during implementation — `herdr plugin config-dir`
-  exists; check whether a state-dir equivalent does, else print the path to the
-  log on every run). The author moves the existing files from
+  `HERDR_PLUGIN_STATE_DIR=<dir> agent-priority.sh list`. There is no
+  `herdr plugin state-dir` (0.8.2 has only `config-dir`); `<dir>` is
+  `${XDG_STATE_HOME:-~/.local/state}/herdr/plugins/agent-priority` — from herdr's
+  source (`plugin_paths.rs`, `config/io.rs`) and present, empty, on disk — and
+  the README states it. The author moves the existing files from
   `~/.local/state/herdr/agent-priority*` and `agent-snooze` into the plugin
   state dir once, by hand, before switching over.
-- **Socket.** `set_view` connects to `$HERDR_SOCKET_PATH` when set, else the
-  current default path.
+- **Socket.** `set_view` connects to `$HERDR_SOCKET_PATH` when set, else
+  `<XDG_CONFIG_HOME or ~/.config>/herdr/herdr.sock`, mirroring herdr's own
+  default.
 - **Key hints.** `keybind_for <sub>` also matches `[[keys.command]]` entries with
-  `type = "plugin_action"` and `command = "agent-priority.<sub>"`, alongside the
-  existing shell-command match (so the author's config works during the switch).
+  `type = "plugin_action"` and `command` exactly `"agent-priority.<sub>"`,
+  alongside the existing shell-command match, which now accepts both script
+  names (`agent-priority.sh`, and `herdr-agent-priority.sh` so the author's
+  config works during the switch).
 - **Popup open.** `open` already runs `herdr plugin pane open --plugin agent-priority --entrypoint picker`; unchanged.
 
 ### README
@@ -343,7 +380,12 @@ runner's tool versions differ from Arch).
 - Offline suite moves with the script and must pass unchanged apart from paths
   (`SCRIPT` points at the repo root). Add: `SELF` resolves via
   `HERDR_PLUGIN_ROOT`; `STATE_DIR` honours `HERDR_PLUGIN_STATE_DIR`;
-  `keybind_for` finds a `plugin_action` binding.
+  `keybind_for` finds a `plugin_action` binding; `set_view` dials
+  `HERDR_SOCKET_PATH`; the picker's real bind strings survive a spaced, quoted
+  path. Also: the README keys snippet equals `tests/config.toml` (minus its
+  `[keys] prefix` header) byte-for-byte, and every `plugin_action` in it names
+  an action the manifest declares — so the README cannot promise a binding the
+  tests do not exercise.
 - CI green on the first push.
 - Clean-install smoke test: an isolated herdr (its own `XDG_CONFIG_HOME`, never
   `HERDR_CONFIG_PATH`, and its own socket) with an empty config; run
@@ -351,7 +393,10 @@ runner's tool versions differ from Arch).
   snippet, reload, and exercise `snooze`, `goto`, `up` through
   `herdr plugin action invoke`; confirm state lands in the plugin state dir and
   nothing is read from or written to the author's `~/.config/herdr` or
-  `~/.local/state/herdr`.
+  `~/.local/state/herdr`. If no real agent is available headless, register one
+  with `herdr pane report-agent … --state blocked`; else the user starts
+  `claude` in the isolated session. Keep the isolated root short: `plugin link`
+  and `install` dial the socket, and a long path exceeds `sun_path`.
 - Live: after linking and reloading, each of the five keys works through its
   plugin action; the picker's alt+ binds still work (they run `$SELF`); the
   sidebar labels survive a herdr restart (startup `stamp`); ranks and snoozes
