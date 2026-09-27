@@ -16,22 +16,19 @@ place; part 2 relocates everything, so it goes last.
 
 A snooze is only visible inside the picker. In the sidebar, where the eyes
 usually are, a snoozed pane looks like any other, so it is easy to forget what
-was set aside and until when.
+was set aside and for how long.
 
 ### Goal
 
-A snoozed agent row shows `zz 14:30` (its wake time) next to its rank label, and
-the label disappears by itself at the wake time. No background process.
+A snoozed agent row shows the time left, `zz 24m` / `zz 2h10m`, next to its
+rank label, updated once a minute, and gone when the snooze ends.
 
 ### Non-goals
 
-- Time remaining (`zz 25m`). Considered and rejected: it goes stale unless
-  something rewrites it every minute, and the choice was between a per-snooze
-  updater process and a label that lies between keypresses. The wake time never
-  needs rewriting.
+- Second-level precision. Minutes are enough for 5m–4h snoozes.
 - Any change to what alt+g, the picker or the snooze store do.
 
-### Mechanism
+### Mechanism: expiring metadata
 
 `herdr pane report-metadata` takes `--ttl-ms <N>` (1 ms – 24 h): the reported
 metadata expires on its own. Verified on herdr 0.8.2 on 2026-09-26: a token
@@ -39,28 +36,67 @@ reported with `--ttl-ms 4000` under source `snooze-probe` was present
 immediately, gone after 5 s, and tokens from other sources on the same pane
 (`pri`, `prisort`, `idx`) were untouched.
 
-So the snooze label is its own metadata report:
+The label is its own metadata report:
 
-- **Source:** `agent-snooze` — distinct from the rank source `agent-priority`,
-  so the TTL can never expire the rank tokens.
-- **Token:** `snz`, value `zz HH:MM` (local time of the wake).
-- **TTL:** `(wake_epoch - now) * 1000`, i.e. it expires exactly at the wake.
+- **Source:** `agent-snooze`, distinct from the rank source `agent-priority`,
+  so no TTL can ever expire the rank tokens.
+- **Token:** `snz`.
 
-### Writes
+### Mechanism: one ticker
+
+A single background process, the **ticker**, owns every `snz` write while any
+snooze is active.
+
+- **Singleton.** It holds `flock -n` on `$STATE_DIR/agent-snooze.ticker.lock`
+  for its lifetime; a second start finds the lock taken and exits at once. So
+  `snooze` and `stamp` just "ensure the ticker is running", however often they
+  fire (stamp runs on every `pane.agent_detected`).
+- **Loop, once a minute:** read the active snoozes and the live pane list; for
+  each active snooze of a live pane, recompute the time left *immediately before
+  its report* and report `snz=zz <left>` with `--ttl-ms 90000`. A snooze whose
+  time left is ≤ 0 by then is skipped and its label cleared. Format: `Nm` under
+  an hour, `NhMm` above (`2h10m`, `4h`, `1h5m`), rounding the minutes up so a
+  fresh 5m reads `5m`, not `4m`.
+- **Exit:** when no active snooze remains; after an agent-list or pane-list
+  failure it logs and sleeps to the next tick rather than exiting (a transient
+  server error must not kill the display).
+- **Self-healing:** every label carries a 90 s TTL, so if the ticker dies — or a
+  clear is lost — the label is gone within 90 s instead of showing a wrong time.
+  Nothing tracks PIDs: `snooze` off or a closed pane simply removes the store
+  line, and the ticker stops writing that label on its next pass.
+- **Store reads** are read-only snapshots via `snoozes_active`; the ticker never
+  takes the store lock and never writes the store.
+- **Starting it** (from `snooze` and from `stamp`): after the critical section,
+  never inside it, with fd 9 closed and detached from the caller —
+  `setsid "$SELF" ticker 9>&- </dev/null >/dev/null 2>&1 &` — per the `locked`
+  contract (a child holding fd 9 would hold the store lock for hours).
+
+### Writes outside the ticker
 
 | When | What |
 | --- | --- |
-| `snooze` sets a rung | Report `snz=zz HH:MM` with the TTL for the new wake. Replaces any earlier report from the same source. |
-| `snooze` reaches off | Report `--clear-token snz` under source `agent-snooze`. |
-| `stamp` (startup / agent detected) | For every active snooze of a live pane, re-report `snz` with the *remaining* TTL. Needed because herdr's restore rebuilds metadata tokens empty. Runs inside `prune`, after the snooze store rewrite, under the same lock. |
+| `snooze` sets a rung | Inside the critical section: report `snz` once with the fresh time left and `--ttl-ms 90000`, so the label appears immediately, not at the next tick. Then, outside it, ensure the ticker. |
+| `snooze` reaches off | Inside the critical section: `--clear-token snz` under source `agent-snooze`. A failure is logged; the 90 s TTL removes the label anyway. |
+| `stamp` | Ensure the ticker if any snooze is active (after `locked prune`). Also, inside `prune`: clear `snz` on every live agent with no active snooze but a non-empty `snz` token, so a label can never outlive its snooze by more than a stamp. |
 
-The label write is metadata, like the rank stamp, so for the same reason (the
-display must follow write order) it runs **inside** the snooze critical section:
-`snooze_step` stamps after `mv`. A failed stamp is logged, not fatal — the store
-is the truth; the label is a projection of it, restored by the next `stamp`.
+Metadata failures in these paths are logged, never fatal: the store is the
+truth, the label a projection of it.
 
-A snooze that expires needs nothing: herdr drops the token at the TTL, and the
-store line is already inert.
+### Risk to verify first: can a process outlive the command that starts it?
+
+The ticker must survive the keybind / hook / action command that starts it.
+herdr 0.8.2 contains a `plugin_command_limit_reached` error, so herdr may cap or
+reap long-running children. The first implementation step is a live experiment:
+start a `setsid`-detached `sleep 300` that writes a probe file every 30 s, from
+(a) a `type = "shell"` keybind and (b) the plugin's startup hook, and confirm it
+keeps running for 5 minutes and across a `herdr server reload-config`.
+
+**Fallback if it cannot:** no ticker. The label shows the wake time instead,
+`zz 14:30`, reported with `--ttl-ms` equal to the time left so herdr removes it
+at the wake; `snooze` writes it, off clears it, `prune` re-reports it for active
+snoozes with the time left recomputed per report (skip and clear if ≤ 0) and
+clears it on live panes without an active snooze. Same source, token and
+sidebar template; only the value and the TTL differ.
 
 ### Display
 
@@ -78,26 +114,39 @@ claude = [
 ```
 
 Dimmed as `{ token = "$snz", dim = true }` if herdr accepts `dim` on a custom
-`$token` (check with `herdr config check`; if it reports the key unknown or
-ignored, fall back to the bare `"$snz"`). An unset token renders nothing, as an
-unranked `$pri` does today.
+`$token` (check with `herdr config check`; if the key is reported unknown or
+ignored, use the bare `"$snz"`). An unset token renders nothing, as an unranked
+`$pri` does today.
 
 ### Testing
 
 Offline, via the existing harness (the stub `herdr` appends every
-`report-metadata` call to `metadata.log`):
+`report-metadata` call to `metadata.log`). The ticker gets a test seam,
+`AGENT_PRIORITY_TICK_ONCE=1`, that runs exactly one pass and exits, so tests
+never sleep or background anything.
 
-1. `snooze w1:p1` → metadata.log has a `--source agent-snooze` call for w1:p1
-   with `--token snz=zz HH:MM` (HH:MM = local wake time) and a `--ttl-ms` within
-   1 s of 300000.
-2. Four more presses → the last call for w1:p1 is `--clear-token snz`.
-3. `stamp` with an active snooze (wake now+600) on a live pane → a `snz` report
-   with `--ttl-ms` ≈ 600000; no report for an expired or gone-pane snooze.
-4. `stamp` with the pane-list failure modes → no `snz` reports (existing guard).
-5. Rank stamps still use `--source agent-priority` and never carry `--ttl-ms`.
+1. `snooze w1:p1` → a `--source agent-snooze` report for w1:p1 with
+   `--token snz=zz 5m` and `--ttl-ms 90000`.
+2. Pressing through to off → the last `agent-snooze` call for w1:p1 is
+   `--clear-token snz`.
+3. One ticker pass with snoozes at +600 s, +7800 s, and one already expired →
+   `zz 10m`, `zz 2h10m`, and a clear for the expired one; no reports for a
+   gone pane.
+4. Ticker singleton: with the ticker lock held by the test, a start exits at
+   once without writing.
+5. `stamp` with a live pane whose fixture token has `snz` set but no active
+   snooze → a `--clear-token snz` for it; with the pane-list failure modes →
+   no `agent-snooze` writes at all (existing guard).
+6. Failed clear then recovery: make the off-rung clear fail (stub failure mode),
+   then run `stamp` with the fixture still showing `snz` → the clear is issued.
+7. Rank stamps still use `--source agent-priority` and never carry `--ttl-ms`.
+8. `snooze` and `stamp` start the ticker with fd 9 closed: assert (via a stub
+   `setsid` on PATH that records its open fds from `/proc/self/fd`) that fd 9
+   is not open in the child.
 
-Live: snooze a pane, see `zz HH:MM` in the sidebar; press through to off, label
-gone; snooze 5m, label gone at the wake time with nothing pressed.
+Live: the process-lifetime experiment above; then snooze a pane and watch the
+label count down minute by minute; press through to off and see it go; restart
+herdr with a snooze active and see the label come back.
 
 ---
 
@@ -182,6 +231,13 @@ Every command is `["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/agent-priority.sh\" <s
 - **Self location.** `SELF` (used by the picker's reload binds) becomes
   `${HERDR_PLUGIN_ROOT:-$(dirname "$0")}/agent-priority.sh` instead of
   `$HOME/.config/herdr/herdr-agent-priority.sh`.
+- **Shell-safe picker commands.** fzf runs each `execute-silent(...)` and
+  `reload(...)` string through a shell, and `$SELF` is interpolated into those
+  strings. Every occurrence is shell-quoted (a small `shq` helper that wraps in
+  single quotes and escapes embedded ones), so a checkout at
+  `/home/user/My Plugins/herdr-agent-priority` works. Tested by building the
+  picker's actual bind/reload strings with `SELF` under a spaced path and
+  running them through `sh -c`, not just by checking the value of `SELF`.
 - **State location.** `STATE_DIR` becomes `${HERDR_PLUGIN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/herdr/agent-priority}`.
   All state files keep their names. A hand-run `agent-priority.sh list` in a
   plain shell has no `HERDR_PLUGIN_STATE_DIR` and would read the fallback, not
@@ -237,6 +293,13 @@ runner's tool versions differ from Arch).
   `HERDR_PLUGIN_ROOT`; `STATE_DIR` honours `HERDR_PLUGIN_STATE_DIR`;
   `keybind_for` finds a `plugin_action` binding.
 - CI green on the first push.
+- Clean-install smoke test: an isolated herdr (its own `XDG_CONFIG_HOME`, never
+  `HERDR_CONFIG_PATH`, and its own socket) with an empty config; run
+  `herdr plugin install Mindful-Stack/herdr-agent-priority`, paste the README
+  snippet, reload, and exercise `snooze`, `goto`, `up` through
+  `herdr plugin action invoke`; confirm state lands in the plugin state dir and
+  nothing is read from or written to the author's `~/.config/herdr` or
+  `~/.local/state/herdr`.
 - Live: after linking and reloading, each of the five keys works through its
   plugin action; the picker's alt+ binds still work (they run `$SELF`); the
   sidebar labels survive a herdr restart (startup `stamp`); ranks and snoozes
