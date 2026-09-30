@@ -1,10 +1,18 @@
 #!/bin/sh
 # Stub sleep: the script's own short test delays (AGENT_PRIORITY_CRIT_DELAY)
-# pass through to the real sleep; the ticker's minute between passes is
+# pass through to the real sleep. Anything that is not a plain, optionally
+# decimal number under 10 — the ticker's `sleep 60`, a suffixed duration like
+# `60s` or `1m`, or any other sub-10 value not spelled as a plain number — is
 # refused, so a test that forgets AGENT_PRIORITY_TICK_ONCE fails at once
 # instead of hanging the runner. `command -p` searches the default system
 # PATH, which does not contain this directory.
-case ${1:-} in
-60) echo "stub sleep: refusing 'sleep 60' — use AGENT_PRIORITY_TICK_ONCE" >&2; exit 1 ;;
-*) command -p sleep "$@" ;;
-esac
+arg=${1:-}
+ok=$(awk -v s="$arg" 'BEGIN {
+  if ((s ~ /^[0-9]+(\.[0-9]+)?$/ || s ~ /^\.[0-9]+$/) && s + 0 < 10) print "yes"
+  else print "no"
+}')
+if [ "$ok" != "yes" ]; then
+  echo "stub sleep: refusing '$arg' — not a plain sub-10 number; use AGENT_PRIORITY_TICK_ONCE" >&2
+  exit 1
+fi
+command -p sleep "$@"

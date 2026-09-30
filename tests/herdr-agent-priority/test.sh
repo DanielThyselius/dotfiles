@@ -72,13 +72,28 @@ set_snz() { # set_snz <pane> <label>: the fixture shows this pane's $snz as set
   fixture ".result.agents |= map(if .pane_id == \"$1\" then .tokens.snz = \"$2\" else . end)"
 }
 snz_lines() { # snz_lines <pane>: this pane's agent-snooze writes, oldest first
-  awk -v p="$1" '$3 == p && / --source agent-snooze /' "$FIXTURE_DIR/metadata.log"
+  # index() on $0 padded with a leading/trailing space, matching the stub
+  # herdr's own " $* " padding, so "--source agent-snooze" as the last token
+  # on the line (no trailing space in $0) still matches as a whole word.
+  awk -v p="$1" '$3 == p && index(" " $0 " ", " --source agent-snooze ") { print }' \
+    "$FIXTURE_DIR/metadata.log"
 }
 # One ticker pass and exit. Never call `run ticker` without the seam: the
 # stub sleep refuses the minute's wait, but the pass count would be wrong.
 ticker_once() { AGENT_PRIORITY_TICK_ONCE=1 sh "$SCRIPT" ticker || true; }
-fd9_in() { # fd9_in <setsid.log line number>: yes if that start inherited fd 9
-  sed -n "${1}p" "$FIXTURE_DIR/setsid.log" | grep -qF ' 9 ' && echo yes || echo no
+fd9_in() { # fd9_in <setsid.log line number>: "yes"/"no" whether that start's
+           # fd list does or doesn't include fd 9; "missing" if there is no
+           # such line in setsid.log at all (distinct from "no": a check that
+           # expects a start to have happened must not read a not-yet-made
+           # call as merely fd-9-absent).
+  line=$(sed -n "${1}p" "$FIXTURE_DIR/setsid.log")
+  if [ -z "$line" ]; then
+    echo missing
+  elif printf '%s\n' "$line" | grep -qF ' 9 '; then
+    echo yes
+  else
+    echo no
+  fi
 }
 
 # --- goto: the "already at the top" hint names the configured keys ----------
@@ -336,6 +351,20 @@ check "stub setsid records its arguments" "args=[-f probe-target ticker]" \
   "$(sed -n 1p "$FIXTURE_DIR/setsid.log" | sed 's/ fds=.*//')"
 check "stub setsid sees an inherited fd 9" "yes" "$(fd9_in 1)"
 check "stub setsid sees fd 9 absent when it is" "no" "$(fd9_in 2)"
+check "fd9_in reports missing, not no, for a call that never happened" \
+  "missing" "$(fd9_in 3)"
+
+setup
+# The stub must never actually start what it was asked to start: give it a
+# target that would leave a mark on disk if it ran, and confirm the mark
+# never appears.
+marker="$T/would-run-marker"
+target="$T/would-run.sh"
+printf '#!/bin/sh\ntouch %s\n' "$marker" >"$target"
+chmod +x "$target"
+setsid -f "$target" ticker
+check "stub setsid never actually runs its target" "no" \
+  "$([ -e "$marker" ] && echo yes || echo no)"
 
 setup
 code=0
@@ -355,5 +384,8 @@ check "fixture can show a live \$snz label" "zz 3m" \
 
 code=0; sleep 60 2>/dev/null || code=$?
 check "stub sleep refuses the ticker's minute" "1" "$code"
+
+code=0; sleep 1m 2>/dev/null || code=$?
+check "stub sleep refuses a suffixed duration ('1m')" "1" "$code"
 
 exit "$failed"

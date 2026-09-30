@@ -3,7 +3,11 @@
 # that process would have inherited — and never start it, so no test ever runs
 # a real ticker. One line per call:
 #   args=[-f /path/agent-priority.sh ticker] fds=[ 0 1 2 255 ]
-# fds is space-padded so " 9 " matches fd 9 and nothing else.
+# fds is space-padded so " 9 " matches fd 9 and nothing else. The listing
+# always includes the directory handle opened to list /proc/$$/fd itself
+# (normally fd 3), alongside the standard 0/1/2 — so assertions must only
+# ever look for fd 9 specifically, never assume anything about the presence
+# or absence of any other fd number.
 fds=' '
 for f in /proc/$$/fd/*; do fds="$fds${f##*/} "; done
 printf 'args=[%s] fds=[%s]\n' "$*" "$fds" >>"$FIXTURE_DIR/setsid.log"
