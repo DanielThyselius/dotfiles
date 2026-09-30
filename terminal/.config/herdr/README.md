@@ -56,12 +56,26 @@ lands on the rank and the title.
 | `enter` | Jump to the highlighted session. |
 | `alt+p`, `alt+shift+p` | Nudge it up or down, same as outside the picker. |
 | `alt+z` | Step its snooze, same as outside the picker. |
-| `alt+1`–`alt+5` | Rank it outright; `alt+3` is unranked. Picker only — outside it these switch tabs. |
+| `alt+1`–`alt+5` | Rank it outright, then move down a row; `alt+3` is unranked. Picker only — outside it these switch tabs. |
+| `alt+0` | Clear the ranks of every row matched by the current query (empty query = every row). |
 | `ctrl+backspace` | Delete the previous word of the query. |
 | `esc` | Close. |
 
 Snoozed rows show `zz HH:MM`, their wake time, dimmed and last in their rank.
 In the sidebar they show the time left instead, `zz 24m`, next to the rank.
+
+`alt+1`-`alt+5` also move the cursor to the row below after ranking
+(set-and-advance), so walking down a list and ranking as you go — `alt+1`,
+`alt+1`, `alt+3`, `alt+2`, ... — keeps landing on the row that was visually
+next, instead of the re-sorted list carrying the cursor away with the row you
+just ranked. `alt+p`, `alt+shift+p` and `alt+z` do not advance, since a
+repeated press of those must keep hitting the same row. The list wraps (the
+picker sets `--cycle`), so sweeping past the last row moves to the first
+rather than stopping.
+
+`alt+0` is the bulk undo: type a filter (a workspace, a tab, part of a title)
+and it clears the rank of everything currently shown, in one press, rather
+than `alt+3`-ing each row by hand.
 
 ## What alt+g does
 
@@ -144,9 +158,12 @@ script speaks to the socket directly. `ui.agent_panel_sort = "priority"` in
 `config.toml` is therefore inert, and is kept only as the fallback if the view
 is ever cleared.
 
-Subcommands, if you need them by hand: `up`, `down`, `set N`, `clear`, `snooze`,
-`goto`, `open`, `pick`, `rows`, `stamp`, `view`, `list`, `ticker`. `list` prints
-the queue that `alt+g` walks, in order, without moving anything.
+Subcommands, if you need them by hand: `up`, `down`, `set N`, `clear`,
+`clear-many <file>`, `snooze`, `goto`, `open`, `pick`, `rows`, `stamp`, `view`,
+`list`, `ticker`. `list` prints the queue that `alt+g` walks, in order, without
+moving anything. `clear-many` reads pane ids one per line from `<file>` and
+clears each one's rank; it exists for `alt+0`, which points it at fzf's file
+of every currently-matched row rather than a hand-written list.
 
 ## When something looks dead
 

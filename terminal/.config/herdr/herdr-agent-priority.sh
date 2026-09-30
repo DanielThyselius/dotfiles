@@ -5,6 +5,8 @@
 #   herdr-agent-priority.sh down [pane_id]    lower one step, stops at 1
 #   herdr-agent-priority.sh set <1-5> [pane_id]
 #   herdr-agent-priority.sh clear [pane_id]
+#   herdr-agent-priority.sh clear-many <file>  clear the ranks of the live pane
+#                                               ids listed in <file>, one per line
 #   herdr-agent-priority.sh snooze [pane_id]   step the snooze: 5m, 30m, 2h, 4h, off
 #   herdr-agent-priority.sh goto              focus the next highest-priority waiting agent
 #   herdr-agent-priority.sh open              open the picker and act on its choice
@@ -598,6 +600,40 @@ rank_write() { # rank_write <pane_id> <priority|"">
   }
 }
 
+# Batch clear for the picker's alt+0 sweep, run under `locked` as a plain
+# command like rank_write. Snapshots which of the given (already-live-checked)
+# panes currently carry a rank, rewrites the store once, then stamps each
+# cleared pane individually.
+#
+# Deliberately NOT rank_write's fatal-on-stamp-failure policy: rank_write is
+# one keypress touching one pane, so dying on a failed stamp just leaves that
+# one pane's token stale until the next press. A sweep can name a dozen panes,
+# and one of them failing to stamp must not cost the other eleven their store
+# writes (which have already landed) or their own stamps — so a stamp failure
+# here is logged and the loop moves on, same as the ticker's per-pane writes.
+clear_many_write() { # clear_many_write <live pane ids, space/newline separated>; sets $cleared, $cleared_count
+  cleared=''
+  for p in $1; do
+    [ -n "$(stored "$p")" ] || continue
+    cleared="$cleared $p"
+  done
+  crit_delay
+  if [ -n "$cleared" ]; then
+    tmp=$(mktemp "$STORE.XXXXXX")
+    awk -F'\t' -v panes="$cleared" '
+      BEGIN { n = split(panes, arr, " "); for (i = 1; i <= n; i++) if (arr[i] != "") drop[arr[i]] = 1 }
+      !($1 in drop)
+    ' "$STORE" >"$tmp"
+    mv "$tmp" "$STORE"
+    for p in $cleared; do
+      stamp_one "$p" "" ||
+        log "clear-many: stamp failed for $p (store updated, token stale until next stamp)"
+    done
+  fi
+  cleared_count=0
+  for p in $cleared; do cleared_count=$((cleared_count + 1)); done
+}
+
 rank_step() { # rank_step <pane_id> <up|down>; sets $next
   cur=$(stored "$1")
   case $cur in 1 | 2 | 3 | 4 | 5) ;; *) cur=$DEFAULT ;; esac
@@ -762,7 +798,7 @@ rows() {
 SELF="$HOME/.config/herdr/herdr-agent-priority.sh"
 
 cmd=${1:-}
-[ -n "$cmd" ] || die "usage: $0 {up|down|set <1-5>|clear|snooze|goto|pick|rows|stamp|list} [pane_id]"
+[ -n "$cmd" ] || die "usage: $0 {up|down|set <1-5>|clear|clear-many <file>|snooze|goto|pick|rows|stamp|list} [pane_id]"
 shift
 log "run $cmd $* (herdr=$(command -v herdr || echo MISSING))"
 
@@ -789,6 +825,34 @@ clear)
   pane=$(target_pane "${1:-}")
   [ -n "$pane" ] || exit 0
   apply "$pane" ""
+  ;;
+
+clear-many)
+  # Driven by the picker's alt+0: <file> is fzf's {*1f} for the current query,
+  # one pane id per line (empty query -> every listed row). A missing or
+  # empty file is a plain no-op — no agent list call, no lock, no toast — so
+  # an accidental press over an empty filter costs nothing.
+  file=${1:-}
+  [ -n "$file" ] && [ -s "$file" ] || exit 0
+  # The one required `herdr agent list` call: anything in the file that is
+  # not a live pane right now is skipped and logged, never written.
+  list=$(herdr agent list) || { log "clear-many: agent list failed"; exit 0; }
+  live=$(printf '%s\n' "$list" | jq -r '.result.agents[].pane_id')
+  panes=''
+  while IFS= read -r p || [ -n "$p" ]; do
+    [ -n "$p" ] || continue
+    if printf '%s\n' "$live" | grep -qxF "$p"; then
+      panes="$panes $p"
+    else
+      log "clear-many: $p not a live agent, skipped"
+    fi
+  done <"$file"
+  locked clear_many_write "$panes"
+  case $cleared_count in
+  0) toast "No ranks to clear" "" ;;
+  1) toast "Cleared 1 rank" "" ;;
+  *) toast "Cleared $cleared_count ranks" "" ;;
+  esac
   ;;
 
 snooze)
@@ -897,21 +961,50 @@ pick)
   # pane id) when a reload re-sorts the list; without it a re-rank moves the row
   # out from under the cursor and the next alt+shift+p hits a different agent.
   # fzf's default for ctrl-bspace deletes one character, hence the rebind.
+  #
+  # SET-AND-ADVANCE. alt+1-5's chain is execute-silent(...)+down+reload(...):
+  # `down` moves the cursor before `reload` runs, so --track's id-nth capture
+  # happens against the row that was *below* the one just ranked, not the one
+  # just moved away by the re-sort. fzf's man page: "Multiple actions can be
+  # chained using + separator" (ACTION COMPOSITION), evaluated left to right,
+  # and --id-nth's own entry says --track "extracts the tracking key from the
+  # current item using the nth expression and searches for a matching item in
+  # the reloaded list" — i.e. whatever is current *at reload time*, which by
+  # then is the row below. Net effect: the cursor stays put on screen while
+  # sweeping ranks down a list. --cycle is still on, so `down` on the last row
+  # wraps to the first rather than stopping — a sweep that starts at the
+  # bottom of the list wraps around instead of leaving the cursor off the end;
+  # accepted, not treated as a bug.
+  #
+  # alt+p/alt+shift+p/alt+z do NOT chain +down: nudging and snoozing act
+  # in place and repeated presses must keep hitting the same row, which is
+  # exactly what dropping the extra `down` preserves.
+  #
+  # alt+0 clears every row the current query matches, not just the
+  # highlighted one: {*1f} is fzf's all-matched-items placeholder ("a
+  # placeholder expression starting with * flag will be replaced to the
+  # space-separated list of all matched items individually quoted",
+  # PREVIEW WINDOW section) narrowed to field 1 and written to a temp file
+  # ("a placeholder expression with f flag is replaced to the path of a
+  # temporary file that holds the evaluated list") — the same file-flag idea
+  # the man page shows combined with a leading flag in {+1}/{*f}. An empty
+  # query matches every row, so alt+0 with nothing typed clears everyone.
   command -v fzf >/dev/null || die "pick needs fzf"
   sel=$(rows | fzf \
     --delimiter='\t' --with-nth=2.. --no-sort --cycle --ansi \
     --track --id-nth=1 \
     --prompt='agent > ' \
-    --header='enter jump  ·  alt+p/alt+shift+p nudge  ·  alt+z snooze  ·  alt+1-5 rank (3 = unranked)  ·  esc close' \
+    --header='enter jump  ·  alt+p/alt+shift+p nudge  ·  alt+z snooze  ·  alt+1-5 rank (3 = unranked)  ·  alt+0 clear matched  ·  esc close' \
     --bind='ctrl-bspace:backward-kill-word' \
-    --bind="alt-1:execute-silent($SELF set 1 {1})+reload($SELF rows)" \
-    --bind="alt-2:execute-silent($SELF set 2 {1})+reload($SELF rows)" \
-    --bind="alt-3:execute-silent($SELF clear {1})+reload($SELF rows)" \
-    --bind="alt-4:execute-silent($SELF set 4 {1})+reload($SELF rows)" \
-    --bind="alt-5:execute-silent($SELF set 5 {1})+reload($SELF rows)" \
+    --bind="alt-1:execute-silent($SELF set 1 {1})+down+reload($SELF rows)" \
+    --bind="alt-2:execute-silent($SELF set 2 {1})+down+reload($SELF rows)" \
+    --bind="alt-3:execute-silent($SELF clear {1})+down+reload($SELF rows)" \
+    --bind="alt-4:execute-silent($SELF set 4 {1})+down+reload($SELF rows)" \
+    --bind="alt-5:execute-silent($SELF set 5 {1})+down+reload($SELF rows)" \
     --bind="alt-p:execute-silent($SELF up {1})+reload($SELF rows)" \
     --bind="alt-P:execute-silent($SELF down {1})+reload($SELF rows)" \
-    --bind="alt-z:execute-silent($SELF snooze {1})+reload($SELF rows)" || true)
+    --bind="alt-z:execute-silent($SELF snooze {1})+reload($SELF rows)" \
+    --bind="alt-0:execute-silent($SELF clear-many {*1f})+reload($SELF rows)" || true)
   [ -n "$sel" ] || exit 0
   target=$(printf '%s\n' "$sel" | cut -f1)
   [ -n "$target" ] || exit 0

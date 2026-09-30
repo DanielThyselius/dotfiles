@@ -604,4 +604,109 @@ check "a failed label report still writes the store line" "5" "$(snooze_step_of 
 check "a failed label report is logged" "yes" \
   "$(grep -qF 'snz report failed' "$(state agent-priority.log)" && echo yes || echo no)"
 
+# --- clear-many (Task 6b) -----------------------------------------------------
+cm_file() { # cm_file <lines...>: write each arg as a line to a fresh temp file, echo its path
+  f="$T/cm-list.$$.$(date +%s%N 2>/dev/null || date +%s)"
+  : >"$f"
+  for line in "$@"; do printf '%s\n' "$line" >>"$f"; done
+  printf '%s\n' "$f"
+}
+
+# Distinguishes: only live+ranked panes lose their line; a live-but-unranked
+# pane and a non-live id are left alone; exactly one clear stamp per pane
+# actually cleared, none for the other two; the toast counts only real clears.
+setup
+mkdir -p "$XDG_STATE_HOME/herdr"
+printf 'w1:p1\t5\nw1:p3\t4\n' >"$(state agent-priority)"
+cmf=$(cm_file w1:p1 w1:p3 w1:p2 w9:gone)
+run clear-many "$cmf"
+check "clear-many drops both ranked panes from the store" "" \
+  "$(awk -F'\t' '$1 == "w1:p1" || $1 == "w1:p3"' "$(state agent-priority)")"
+check "clear-many leaves the unranked live pane untouched (still absent)" "" \
+  "$(awk -F'\t' '$1 == "w1:p2"' "$(state agent-priority)")"
+check "clear-many stamps exactly one clear each for p1 and p3, none for p2 or w9:gone" \
+  "w1:p1 w1:p3" \
+  "$(awk '/--source agent-priority/ && /--clear-token pri/ { print $3 }' "$FIXTURE_DIR/metadata.log" | \
+     tr '\n' ' ' | sed 's/ $//')"
+check "clear-many toasts the count" "yes" \
+  "$(grep -qF 'Cleared 2 ranks' "$FIXTURE_DIR/toasts.log" && echo yes || echo no)"
+check "clear-many logs the non-live pane as skipped" "yes" \
+  "$(grep -qF 'w9:gone not a live agent, skipped' "$(state agent-priority.log)" && echo yes || echo no)"
+
+# Distinguishes: clear-many and a concurrent single-pane write share the same
+# lock and neither is lost, in either acquisition order. Without a shared
+# critical section, one of the two store writes could clobber the other.
+setup
+AGENT_PRIORITY_CRIT_DELAY=0.3
+export AGENT_PRIORITY_CRIT_DELAY
+mkdir -p "$XDG_STATE_HOME/herdr"
+printf 'w1:p1\t5\n' >"$(state agent-priority)"
+cmf=$(cm_file w1:p1)
+run up w1:p4 & run clear-many "$cmf" & wait
+check "concurrent up and clear-many: the up is not lost" "4" \
+  "$(awk -F'\t' '$1 == "w1:p4" { print $2 }' "$(state agent-priority)")"
+check "concurrent up and clear-many: the clear is not lost" "" \
+  "$(awk -F'\t' '$1 == "w1:p1"' "$(state agent-priority)")"
+unset AGENT_PRIORITY_CRIT_DELAY
+
+# Distinguishes the singular toast wording from the plural, and the
+# zero-cleared wording from both — a naive "Cleared $n ranks" would say
+# "Cleared 1 ranks" and "Cleared 0 ranks" instead.
+setup
+mkdir -p "$XDG_STATE_HOME/herdr"
+printf 'w1:p1\t5\n' >"$(state agent-priority)"
+cmf=$(cm_file w1:p1)
+run clear-many "$cmf"
+check "clear-many toasts the singular for exactly one clear" "yes" \
+  "$(grep -qF 'Cleared 1 rank' "$FIXTURE_DIR/toasts.log" && echo yes || echo no)"
+check "the singular toast is not the plural" "no" \
+  "$(grep -qF 'Cleared 1 ranks' "$FIXTURE_DIR/toasts.log" && echo yes || echo no)"
+
+setup
+cmf=$(cm_file w1:p2)
+run clear-many "$cmf"
+check "clear-many toasts \"No ranks to clear\" when nothing was ranked" "yes" \
+  "$(grep -qF 'No ranks to clear' "$FIXTURE_DIR/toasts.log" && echo yes || echo no)"
+check "clear-many writes no metadata when nothing was cleared" "" \
+  "$(cat "$FIXTURE_DIR/metadata.log")"
+
+# Distinguishes a genuine no-op (no lock taken, no agent list call, exit 0)
+# from "ran and happened to clear nothing" — an empty or missing file must
+# never even reach the lock or the store.
+setup
+cmf=$(cm_file)
+: >"$cmf"
+code=0; sh "$SCRIPT" clear-many "$cmf" || code=$?
+check "clear-many on an empty file exits 0" "0" "$code"
+check "clear-many on an empty file writes nothing to the store" "" \
+  "$(cat "$(state agent-priority)" 2>/dev/null)"
+check "clear-many on an empty file writes no metadata" "" "$(cat "$FIXTURE_DIR/metadata.log")"
+check "clear-many on an empty file sends no toast" "" "$(cat "$FIXTURE_DIR/toasts.log")"
+
+setup
+code=0; sh "$SCRIPT" clear-many "$T/does-not-exist" || code=$?
+check "clear-many on a missing file exits 0" "0" "$code"
+check "clear-many on a missing file writes nothing to the store" "" \
+  "$(cat "$(state agent-priority)" 2>/dev/null)"
+
+# --- picker bind strings (Task 6b) --------------------------------------------
+# Distinguishes: alt+1-5 chain a `down` before their `reload` (set-and-advance);
+# alt+p/alt+shift+p/alt+z do not (nudge/snooze must keep hitting the same row);
+# alt+0 sweeps via clear-many over fzf's all-matched, field-1, file-flag
+# placeholder rather than acting on the single highlighted row.
+setup
+binds=$(sed -n '/^pick)/,/^  ;;/p' "$SCRIPT")
+for n in 1 2 3 4 5; do
+  check "alt-$n chains down before reload (set-and-advance)" "yes" \
+    "$(printf '%s\n' "$binds" | grep "alt-$n:" | grep -qF '+down+reload' && echo yes || echo no)"
+done
+check "alt-p does not chain down" "yes" \
+  "$(printf '%s\n' "$binds" | grep 'alt-p:' | grep -qv '+down' && echo yes || echo no)"
+check "alt-P (alt+shift+p) does not chain down" "yes" \
+  "$(printf '%s\n' "$binds" | grep 'alt-P:' | grep -qv '+down' && echo yes || echo no)"
+check "alt-z does not chain down" "yes" \
+  "$(printf '%s\n' "$binds" | grep 'alt-z:' | grep -qv '+down' && echo yes || echo no)"
+check "alt-0 sweeps via clear-many over the all-matched field-1 file placeholder" "yes" \
+  "$(printf '%s\n' "$binds" | grep -qF 'alt-0:execute-silent($SELF clear-many {*1f})' && echo yes || echo no)"
+
 exit "$failed"
