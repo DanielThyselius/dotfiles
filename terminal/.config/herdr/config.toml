@@ -476,12 +476,17 @@ agent_panel_sort = "priority"
 # stamped by herdr-agent-priority.sh and holds the 1-5 rank set with alt+p; it is
 # absent on most rows, and a token with no value renders as nothing rather than
 # as its own name, so unranked agents stay clean.
+# $snz is the snooze label, "zz 24m", stamped by the same script under its own
+# metadata source (agent-snooze) with a TTL, refreshed once a minute while
+# anything is snoozed, and gone when the snooze ends. Dimmed because it is a
+# qualifier on the row, not a thing to act on. `dim` on a custom token is
+# validated, not ignored: a misspelt style key fails `herdr config check`.
 [ui.sidebar.agents]
-rows = [["state_icon", "$idx", "$pri", "workspace", "tab"], ["agent"]]
+rows = [["state_icon", "$idx", "$pri", { token = "$snz", dim = true }, "workspace", "tab"], ["agent"]]
 
 [ui.sidebar.agents.rows_by_agent]
 claude = [
-  ["state_icon", "$idx", "$pri", { token = "workspace", dim = true }],
+  ["state_icon", "$idx", "$pri", { token = "$snz", dim = true }, { token = "workspace", dim = true }],
   ["terminal_title_stripped"],
 ]
 

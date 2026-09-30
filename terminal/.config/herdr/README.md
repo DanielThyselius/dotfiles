@@ -61,6 +61,7 @@ lands on the rank and the title.
 | `esc` | Close. |
 
 Snoozed rows show `zz HH:MM`, their wake time, dimmed and last in their rank.
+In the sidebar they show the time left instead, `zz 24m`, next to the rank.
 
 ## What alt+g does
 
@@ -117,6 +118,7 @@ exists only to run it at the right moments.
 | `~/.local/state/herdr/agent-priority` | The ranks. This is the source of truth. |
 | `~/.local/state/herdr/agent-snooze` | Active snoozes: pane, wake time, step. |
 | `~/.local/state/herdr/agent-priority.lock` | Serialises writes to both stores. |
+| `~/.local/state/herdr/agent-snooze.ticker.lock` | Held by the one ticker that refreshes snooze labels. |
 | `~/.local/state/herdr/agent-priority.log` | Every invocation, for when a key looks dead. |
 | `~/.local/state/herdr/agent-priority.selection` | The picker handing its choice back. |
 | `~/.local/state/herdr/agent-priority.notify-id` | The toast being replaced. |
@@ -128,6 +130,11 @@ Two pane metadata tokens carry the rank into the UI:
 - `$prisort` is on every agent, defaults to 3, and is referenced by nothing.
   The sidebar sort is a string comparison over a token, so without a value on
   every row the unranked ones sink below a deliberate "1", which is backwards.
+- `$snz` is the snooze label, under its own source `agent-snooze` so its TTL
+  can never expire the rank tokens. A single background ticker, started by
+  `alt+z` or the startup hook and gone when nothing is snoozed, refreshes it
+  once a minute; every label write, the ticker's included, happens under the
+  store lock. If the ticker dies the label is gone within 90 s, never wrong.
 
 The sidebar order itself comes from herdr's declarative agent view
 (`agent.view.set`), which accepts a metadata token as a sort key. Setting a
@@ -138,8 +145,8 @@ script speaks to the socket directly. `ui.agent_panel_sort = "priority"` in
 is ever cleared.
 
 Subcommands, if you need them by hand: `up`, `down`, `set N`, `clear`, `snooze`,
-`goto`, `open`, `pick`, `rows`, `stamp`, `view`, `list`. `list` prints the queue that
-`alt+g` walks, in order, without moving anything.
+`goto`, `open`, `pick`, `rows`, `stamp`, `view`, `list`, `ticker`. `list` prints
+the queue that `alt+g` walks, in order, without moving anything.
 
 ## When something looks dead
 
