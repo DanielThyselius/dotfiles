@@ -319,9 +319,44 @@ tick_probe() {
   printf 'ticker=%s store=%s\n' "$t" "$s" >>"$AGENT_PRIORITY_TICK_PROBE"
 }
 
-# One pass, run under `locked` so it can never publish a label that a
-# `snooze` press has since changed: the press either finished before this pass
-# (the fresh reads below see it) or waits for the pass and overwrites it.
+# Read outside the store lock, once per pass, into $agents (pane<TAB>current
+# $snz token). Safe there because this list only decides which panes get a
+# report vs a clear, and either write is idempotent: a pane this read missed
+# just gets picked up next pass, and a stale token here costs one redundant
+# clear next time round, never a wrong result. The decision that actually
+# matters — whether to keep the ticker running at all — is NOT taken from
+# this: it comes from a fresh read of the snooze store inside the lock (see
+# tick_pass), because a snooze that lands between this read and the lock must
+# not be missed for a whole minute. Reading the list out here also means a
+# hung `herdr agent list` cannot block a `snooze` press waiting on the same
+# lock.
+#
+# Logged only on a state change (failed/empty/ok), never every minute, so a
+# real herdr outage shows up once instead of drowning the log for however
+# long it lasts, and distinctly from "herdr is up but nothing is attached".
+tick_read_agents() {
+  agents=''
+  tick_state=failed
+  if alist=$(herdr agent list); then
+    agents=$(printf '%s\n' "$alist" |
+      jq -r '.result.agents[] | "\(.pane_id)\t\(.tokens.snz // "")"' 2>/dev/null) || agents=''
+    if [ -n "$agents" ]; then tick_state=ok; else tick_state=empty; fi
+  fi
+  tick_prev=${tick_agents_state:-}
+  tick_agents_state=$tick_state
+  if [ "$tick_state" != "$tick_prev" ]; then
+    case $tick_state in
+    failed) log "tick: agent list unavailable, no labels until it recovers" ;;
+    empty) log "tick: agent list has no agents, no labels this pass" ;;
+    ok) [ -z "$tick_prev" ] || log "tick: agent list back" ;;
+    esac
+  fi
+}
+
+# One pass, run under `tick_locked` so it can never publish a label that a
+# `snooze` press has since changed: the press either finished before this
+# pass (the fresh store read below sees it) or waits for the pass and
+# overwrites it. $agents comes from `tick_read_agents`, read before the lock.
 #
 # Whether to keep running is decided by the STORE, not the agent list: with
 # herdr down the list fails every pass, and a ticker that waited for it would
@@ -333,14 +368,7 @@ tick_pass() {
     ticker_release
     return 0
   }
-  agents=''
-  if alist=$(herdr agent list); then
-    agents=$(printf '%s\n' "$alist" |
-      jq -r '.result.agents[] | "\(.pane_id)\t\(.tokens.snz // "")"' 2>/dev/null) || agents=''
-  fi
-  if [ -z "$agents" ]; then
-    log "tick: agent list unavailable, no labels this pass"
-  else
+  if [ -n "$agents" ]; then
     crit_delay
     printf '%s\n' "$agents" |
       while IFS='	' read -r pane cur; do
@@ -355,8 +383,28 @@ tick_pass() {
         fi
       done
   fi
-  [ -n "$active" ] || ticker_release
+  [ -n "$active" ] || { log "tick: nothing snoozed, stopping"; ticker_release; }
   tick_probe
+}
+
+# The ticker's own acquire, distinct from `locked` above: `locked`'s `exit 1`
+# on a timed-out flock is fine for a one-shot keypress process (it just dies,
+# leaving a stale sidebar until the next press), but the ticker is long-lived
+# — dying here would drop every snooze label for up to 4h, with only a
+# generic "lock: timed out after 5s" line to explain it. So a timeout SKIPS
+# this pass and loops again instead of exiting: the next pass, a minute away,
+# finds the same store either way. Runs in THIS shell (brace group, not
+# subshell), exactly like `locked`, so `ticker_release`'s `exec 8>&-` and
+# `ticker_exit=1` still take effect on the caller when a pass does complete.
+#
+# AGENT_PRIORITY_LOCK_WAIT: test seam so the timeout itself is provable
+# without an actual 5s wait (0 or 1). Unset in normal use.
+tick_locked() {
+  {
+    flock -w "${AGENT_PRIORITY_LOCK_WAIT:-5}" 9 ||
+      { log "tick: store lock busy, skipping this pass"; return 0; }
+    tick_pass
+  } 9>"$LOCK"
 }
 
 snooze_step() { # snooze_step <pane_id>; run under `locked`; sets $step and $wake
@@ -505,7 +553,11 @@ PYVIEW
 # The wait is bounded at 5s: a hung `herdr pane report-metadata` inside the
 # critical section would otherwise block every later keypress silently, and
 # logging the timeout means a run of them shows up instead of just going
-# quiet.
+# quiet. Dying on that timeout is fine here — this process is one keypress,
+# and dying leaves nothing behind but a stale sidebar until the next press.
+# The ticker is long-lived, so a timeout there must not exit the process
+# (that would drop every label for up to 4h): see `tick_locked`, its own
+# variant of this same lock, which skips the pass and loops again instead.
 #
 # CONTRACT for callers, here and in later tasks: call `locked` as a plain
 # command, never in a condition. `if locked ...` or `locked ... ||` disables
@@ -904,18 +956,18 @@ list)
 ticker)
   # Started detached by ensure_ticker; see the THE TICKER comment above.
   # A pass right away (so a restart's labels come back at once), then one a
-  # minute. Each pass opens and closes fd 9 through `locked`, so between
-  # passes it holds no store lock.
+  # minute. Each pass opens and closes fd 9 through `tick_locked`, so between
+  # passes it holds no store lock. The agent list is read before that lock
+  # (tick_read_agents); only the store read that decides whether to keep
+  # running happens inside it.
   exec 8>"$TICKER_LOCK"
   flock -n 8 || { log "ticker: already running"; exit 0; }
   log "ticker: started"
   while :; do
     ticker_exit=''
-    locked tick_pass
-    if [ -n "$ticker_exit" ]; then
-      log "ticker: nothing snoozed, stopping"
-      exit 0
-    fi
+    tick_read_agents
+    tick_locked
+    [ -z "$ticker_exit" ] || exit 0
     # Test seam: exactly one pass.
     [ -z "${AGENT_PRIORITY_TICK_ONCE:-}" ] || exit 0
     # 8>&-: a child that inherited fd 8 keeps the singleton after the ticker

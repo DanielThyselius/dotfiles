@@ -495,6 +495,8 @@ mkdir -p "$(dirname "$(state agent-snooze)")"
 AGENT_PRIORITY_TICK_ONCE=1 AGENT_PRIORITY_TICK_PROBE="$T/probe" sh "$SCRIPT" ticker || true
 check "nothing snoozed: singleton released while the store lock is still held" \
   "ticker=free store=held" "$(cat "$T/probe" 2>/dev/null)"
+check "nothing snoozed: the pass logs why it stopped" "yes" \
+  "$(grep -qF 'tick: nothing snoozed, stopping' "$(state agent-priority.log)" && echo yes || echo no)"
 
 setup
 seed_snooze w1:p1 600 30
@@ -516,6 +518,30 @@ check "a concurrent tick never leaves a stale label after an off press" \
   "$(snz_lines w1:p1 | tail -n1)"
 check "and the store agrees: no snooze for w1:p1" "" \
   "$(awk -F'\t' '$1 == "w1:p1"' "$(state agent-snooze)")"
+
+# --- a busy store lock skips the pass, it does not kill the ticker (review fix) ---
+# AGENT_PRIORITY_LOCK_WAIT lets the timeout itself be proven without a real 5s
+# wait: fd 6 holds the store lock for the whole call below, deterministically
+# (not a race), so even a 0s wait reliably fails to acquire it.
+setup
+seed_snooze w1:p1 600 30
+exec 6>"$(state agent-priority.lock)"
+flock 6
+code=0
+AGENT_PRIORITY_TICK_ONCE=1 AGENT_PRIORITY_LOCK_WAIT=0 sh "$SCRIPT" ticker 2>/dev/null || code=$?
+exec 6>&-
+check "a busy store lock does not kill the ticker: exit 0" "0" "$code"
+check "a busy store lock logs that the pass was skipped, not a generic timeout" "yes" \
+  "$(grep -qF 'tick: store lock busy, skipping this pass' "$(state agent-priority.log)" && echo yes || echo no)"
+check "a busy store lock writes no label: the pass never ran" "" "$(snz_lines w1:p1)"
+check "and the snooze itself is untouched" "yes" \
+  "$(awk -F'\t' '$1 == "w1:p1"' "$(state agent-snooze)" | grep -q . && echo yes || echo no)"
+
+# Once the lock is free again, a fresh ticker pass behaves normally.
+code=0; AGENT_PRIORITY_TICK_ONCE=1 sh "$SCRIPT" ticker || code=$?
+check "after the lock frees, a normal pass still works" "0" "$code"
+check "and it writes the label this time" "yes" \
+  "$(snz_lines w1:p1 | grep -qF 'snz=zz 10m' && echo yes || echo no)"
 
 # --- snooze_left boundaries, isolated from the clock (Task 3 review addition) ---
 # snooze_left is pure integer arithmetic over its one argument, so it is
