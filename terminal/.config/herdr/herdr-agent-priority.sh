@@ -13,6 +13,7 @@
 #   herdr-agent-priority.sh view              re-apply the priority sort to the sidebar
 #   herdr-agent-priority.sh stamp             re-apply priorities and the sort (startup hook)
 #   herdr-agent-priority.sh list              show the queue goto walks, in order
+#   herdr-agent-priority.sh ticker            refresh snooze labels once a minute (started by snooze/stamp)
 #
 # THE POINT. With 30-odd agents the sidebar tells you *that* things want you,
 # never *which* to do first, so the fleet becomes a treadmill: you service
@@ -287,6 +288,75 @@ snz_report() { # snz_report <pane_id> <wake_epoch> <caller>
 ensure_ticker() {
   setsid -f "$SELF" ticker 9>&- </dev/null >/dev/null 2>&1 ||
     log "ensure_ticker: could not start the ticker"
+}
+
+# THE TICKER. One background process refreshes every snooze label once a
+# minute while anything is snoozed, and exits when nothing is. Nothing tracks
+# PIDs: it holds `flock -n` on $TICKER_LOCK (fd 8) for its lifetime, and a
+# start that finds that taken exits at once.
+#
+# EXIT/START HANDOFF. The race: a ticker decides to exit, a new snooze starts
+# a replacement, the replacement finds the singleton still held and leaves,
+# then the old ticker exits — and the new snooze has no updater. Closed by
+# taking both decisions under the store lock: the ticker releases fd 8 at the
+# end of its pass, *inside* the critical section, when it found nothing
+# snoozed; `snooze` writes its line inside its own critical section and starts
+# a ticker only after releasing the lock. Either the pass ran first (fd 8 is
+# already free when the replacement asks) or the snooze did (the pass sees the
+# new line and keeps running; the replacement correctly leaves).
+ticker_release() { exec 8>&-; ticker_exit=1; }
+
+# Test seam: record, from inside the critical section, whether the singleton
+# and the store lock are held right now. A fresh open conflicts with a lock
+# this process holds on another descriptor, so `flock -n` on the path answers
+# exactly that. Unset in normal use.
+tick_probe() {
+  [ -n "${AGENT_PRIORITY_TICK_PROBE:-}" ] || return 0
+  t=held
+  flock -n "$TICKER_LOCK" true 2>/dev/null && t=free
+  s=held
+  flock -n "$LOCK" true 2>/dev/null && s=free
+  printf 'ticker=%s store=%s\n' "$t" "$s" >>"$AGENT_PRIORITY_TICK_PROBE"
+}
+
+# One pass, run under `locked` so it can never publish a label that a
+# `snooze` press has since changed: the press either finished before this pass
+# (the fresh reads below see it) or waits for the pass and overwrites it.
+#
+# Whether to keep running is decided by the STORE, not the agent list: with
+# herdr down the list fails every pass, and a ticker that waited for it would
+# never exit. With the store deciding, it stops within 4 h (the longest rung)
+# whatever herdr does.
+tick_pass() {
+  active=$(snoozes_active) || {
+    log "tick: snooze read failed, stopping"
+    ticker_release
+    return 0
+  }
+  agents=''
+  if alist=$(herdr agent list); then
+    agents=$(printf '%s\n' "$alist" |
+      jq -r '.result.agents[] | "\(.pane_id)\t\(.tokens.snz // "")"' 2>/dev/null) || agents=''
+  fi
+  if [ -z "$agents" ]; then
+    log "tick: agent list unavailable, no labels this pass"
+  else
+    crit_delay
+    printf '%s\n' "$agents" |
+      while IFS='	' read -r pane cur; do
+        [ -n "$pane" ] || continue
+        wake=$(printf '%s\n' "$active" | awk -F'\t' -v p="$pane" '$1 == p { print $2; exit }')
+        if [ -n "$wake" ]; then
+          snz_report "$pane" "$wake" tick
+        elif [ -n "$cur" ]; then
+          # Expired, switched off or edited away, but still on screen. Driven
+          # by the token because $active has already lost expired lines.
+          snz_clear "$pane" tick
+        fi
+      done
+  fi
+  [ -n "$active" ] || ticker_release
+  tick_probe
 }
 
 snooze_step() { # snooze_step <pane_id>; run under `locked`; sets $step and $wake
@@ -829,6 +899,30 @@ view)
 
 list)
   queue | awk -F'\t' '{ printf "P%s  %-8s %-8s %s %s\n", $2, $3, $1, ($4 == "*" ? ">" : " "), $5 }'
+  ;;
+
+ticker)
+  # Started detached by ensure_ticker; see the THE TICKER comment above.
+  # A pass right away (so a restart's labels come back at once), then one a
+  # minute. Each pass opens and closes fd 9 through `locked`, so between
+  # passes it holds no store lock.
+  exec 8>"$TICKER_LOCK"
+  flock -n 8 || { log "ticker: already running"; exit 0; }
+  log "ticker: started"
+  while :; do
+    ticker_exit=''
+    locked tick_pass
+    if [ -n "$ticker_exit" ]; then
+      log "ticker: nothing snoozed, stopping"
+      exit 0
+    fi
+    # Test seam: exactly one pass.
+    [ -z "${AGENT_PRIORITY_TICK_ONCE:-}" ] || exit 0
+    # 8>&-: a child that inherited fd 8 keeps the singleton after the ticker
+    # dies (measured), so if this shell is killed mid-wait, a sleeping child
+    # must not block the replacement for up to a minute.
+    sleep 60 8>&-
+  done
   ;;
 
 *)

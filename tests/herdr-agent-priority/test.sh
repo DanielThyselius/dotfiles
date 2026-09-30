@@ -430,4 +430,121 @@ check "stub sleep refuses the ticker's minute" "1" "$code"
 code=0; sleep 1m 2>/dev/null || code=$?
 check "stub sleep refuses a suffixed duration ('1m')" "1" "$code"
 
+# --- ticker (Task 4) -------------------------------------------------------------
+# One pass. w1:p1 and w1:p4 are snoozed and live; w1:p2's line has expired but
+# its label is still on screen (fixture token); w9:gone is snoozed but not live.
+setup
+seed_snooze w1:p1 600 30
+seed_snooze w1:p4 7800 240
+seed_snooze w1:p2 -1 30
+seed_snooze w9:gone 600 30
+set_snz w1:p2 "zz 1m"
+ticker_once
+check "tick refreshes a live snooze (10m, 90s TTL)" \
+  "pane report-metadata w1:p1 --source agent-snooze --token snz=zz 10m --ttl-ms 90000" \
+  "$(snz_lines w1:p1)"
+check "tick formats hours as NhMm" \
+  "pane report-metadata w1:p4 --source agent-snooze --token snz=zz 2h10m --ttl-ms 90000" \
+  "$(snz_lines w1:p4)"
+check "tick clears a label whose snooze expired (token-driven)" \
+  "pane report-metadata w1:p2 --source agent-snooze --clear-token snz" \
+  "$(snz_lines w1:p2)"
+check "tick writes nothing for a gone pane" "" "$(snz_lines w9:gone)"
+check "tick writes nothing for a pane with no snooze and no label" "" "$(snz_lines w1:p3)"
+
+setup
+seed_snooze w1:p1 300 5
+seed_snooze w1:p2 3900 120
+seed_snooze w1:p3 14400 240
+ticker_once
+check "5m rounds up, not down" "yes" "$(snz_lines w1:p1 | grep -qF 'snz=zz 5m ' && echo yes || echo no)"
+check "65 minutes is 1h5m" "yes" "$(snz_lines w1:p2 | grep -qF 'snz=zz 1h5m ' && echo yes || echo no)"
+check "a whole hour drops the minutes (4h)" "yes" "$(snz_lines w1:p3 | grep -qF 'snz=zz 4h ' && echo yes || echo no)"
+
+setup
+seed_snooze w1:p1 20 5
+ticker_once
+ttl=$(snz_lines w1:p1 | sed 's/.*--ttl-ms //')
+check "TTL never outlives the wake (20s left -> <= 20000)" "yes" \
+  "$([ -n "$ttl" ] && [ "$ttl" -ge 1 ] && [ "$ttl" -le 20000 ] && echo yes || echo no)"
+
+# A label-write failure is logged and the pass carries on to the next pane.
+setup
+seed_snooze w1:p1 600 30
+seed_snooze w1:p4 600 30
+code=0; AGENT_PRIORITY_TICK_ONCE=1 HERDR_STUB_FAIL_SNOOZE_META=1 sh "$SCRIPT" ticker 2>/dev/null || code=$?
+check "a failed tick write is not fatal" "0" "$code"
+check "a failed tick write is logged, and the next pane is still tried" "2" \
+  "$(grep -c 'tick: snz report failed for w1:p[14]' "$(state agent-priority.log)")"
+
+# Singleton: while another ticker holds the lock, a start exits without writing.
+setup
+seed_snooze w1:p1 600 30
+exec 7>"$(state agent-snooze.ticker.lock)"
+flock -n 7
+ticker_once
+exec 7>&-
+check "a second ticker writes nothing" "" "$(cat "$FIXTURE_DIR/metadata.log")"
+check "a second ticker says why it left" "yes" \
+  "$(grep -qF 'ticker: already running' "$(state agent-priority.log)" && echo yes || echo no)"
+
+# Handoff: the probe records, from inside the store critical section at the
+# end of the pass, whether each lock is held right then.
+setup
+mkdir -p "$(dirname "$(state agent-snooze)")"
+AGENT_PRIORITY_TICK_ONCE=1 AGENT_PRIORITY_TICK_PROBE="$T/probe" sh "$SCRIPT" ticker || true
+check "nothing snoozed: singleton released while the store lock is still held" \
+  "ticker=free store=held" "$(cat "$T/probe" 2>/dev/null)"
+
+setup
+seed_snooze w1:p1 600 30
+AGENT_PRIORITY_TICK_ONCE=1 AGENT_PRIORITY_TICK_PROBE="$T/probe" sh "$SCRIPT" ticker || true
+check "something snoozed: the pass keeps the singleton" \
+  "ticker=held store=held" "$(cat "$T/probe" 2>/dev/null)"
+
+# Ticker writes under the store lock. The ticker reads early and reports late
+# (0.6s delay); the off press reads and clears inside that window (0.2s).
+# Unlocked, the ticker's stale "zz" lands after the clear; locked, either
+# order ends on the clear.
+setup
+seed_snooze w1:p1 600 240
+( AGENT_PRIORITY_CRIT_DELAY=0.6 AGENT_PRIORITY_TICK_ONCE=1 sh "$SCRIPT" ticker || true ) &
+( AGENT_PRIORITY_CRIT_DELAY=0.2 sh "$SCRIPT" snooze w1:p1 || true ) &
+wait
+check "a concurrent tick never leaves a stale label after an off press" \
+  "pane report-metadata w1:p1 --source agent-snooze --clear-token snz" \
+  "$(snz_lines w1:p1 | tail -n1)"
+check "and the store agrees: no snooze for w1:p1" "" \
+  "$(awk -F'\t' '$1 == "w1:p1"' "$(state agent-snooze)")"
+
+# --- snooze_left boundaries, isolated from the clock (Task 3 review addition) ---
+# snooze_left is pure integer arithmetic over its one argument, so it is
+# sourced straight out of the script (sed extraction, same idea as the plan's
+# note about testing keybind_for in isolation) and called directly with fixed
+# second counts. No seed_snooze/date race, no ticker: this only pins the
+# rounding formula itself.
+SNOOZE_LEFT_FN="$ROOT/snooze_left.sh"
+sed -n '/^snooze_left() {/,/^}/p' "$SCRIPT" >"$SNOOZE_LEFT_FN"
+snooze_left_of() { # snooze_left_of <seconds>
+  sh -c '. "$1"; snooze_left "$2"' sl "$SNOOZE_LEFT_FN" "$1"
+}
+check "300s -> 5m" "5m" "$(snooze_left_of 300)"
+check "301s -> 6m" "6m" "$(snooze_left_of 301)"
+check "3599s -> 1h" "1h" "$(snooze_left_of 3599)"
+check "3600s -> 1h" "1h" "$(snooze_left_of 3600)"
+check "3601s -> 1h1m" "1h1m" "$(snooze_left_of 3601)"
+check "7800s -> 2h10m" "2h10m" "$(snooze_left_of 7800)"
+check "14400s -> 4h" "4h" "$(snooze_left_of 14400)"
+
+# --- a failed label REPORT (not only clear) on the first press is non-fatal
+# (Task 3 review addition) ----------------------------------------------------
+setup
+code=0; HERDR_STUB_FAIL_SNOOZE_META=1 sh "$SCRIPT" snooze w1:p1 2>/dev/null || code=$?
+check "a failed label report on the first snooze press exits 0" "0" "$code"
+check "a failed label report still toasts the snooze duration" "yes" \
+  "$(grep -qF 'Snoozed 5m' "$FIXTURE_DIR/toasts.log" && echo yes || echo no)"
+check "a failed label report still writes the store line" "5" "$(snooze_step_of w1:p1)"
+check "a failed label report is logged" "yes" \
+  "$(grep -qF 'snz report failed' "$(state agent-priority.log)" && echo yes || echo no)"
+
 exit "$failed"
