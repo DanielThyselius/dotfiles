@@ -689,11 +689,35 @@ check "clear-many on a missing file exits 0" "0" "$code"
 check "clear-many on a missing file writes nothing to the store" "" \
   "$(cat "$(state agent-priority)" 2>/dev/null)"
 
+# clear-many's <file> is fed by fzf's {*f} (full matched ROWS, id<TAB>display,
+# not a bare-id list — see the {*1f} finding below), so clear-many must read
+# field 1 of each line and ignore the rest. Distinguishes that field-1 cut
+# from a naive whole-line read, which this would fail: whole-line matching
+# against the live-agent list would never match a line that has a display
+# suffix (and ANSI codes) glued on, so every row would be logged as "not a
+# live agent" and nothing would ever clear.
+setup
+mkdir -p "$XDG_STATE_HOME/herdr"
+printf 'w1:p1\t5\nw1:p3\t4\n' >"$(state agent-priority)"
+cmf="$T/cm-fullrows.txt"
+{
+  printf 'w1:p1\t\033[1mP4\033[0m \033[36mdone\033[0m  alpha\n'
+  printf 'w1:p3\t\033[1mP4\033[0m \033[36mdone\033[0m  gamma\n'
+  printf 'w1:p2\t\033[2m--\033[0m \033[2midle\033[0m  beta\n'
+} >"$cmf"
+run clear-many "$cmf"
+check "clear-many reads field 1 of a full rows()-style line, ignoring the ANSI-colored display text" \
+  "" "$(awk -F'\t' '$1 == "w1:p1" || $1 == "w1:p3"' "$(state agent-priority)")"
+check "clear-many with full-row input leaves the unranked row's absence alone" "" \
+  "$(awk -F'\t' '$1 == "w1:p2"' "$(state agent-priority)")"
+check "clear-many with full-row input toasts the count" "yes" \
+  "$(grep -qF 'Cleared 2 ranks' "$FIXTURE_DIR/toasts.log" && echo yes || echo no)"
+
 # --- picker bind strings (Task 6b) --------------------------------------------
 # Distinguishes: alt+1-5 chain a `down` before their `reload` (set-and-advance);
 # alt+p/alt+shift+p/alt+z do not (nudge/snooze must keep hitting the same row);
-# alt+0 sweeps via clear-many over fzf's all-matched, field-1, file-flag
-# placeholder rather than acting on the single highlighted row.
+# alt+0 sweeps via clear-many over fzf's all-matched file placeholder rather
+# than acting on the single highlighted row.
 setup
 binds=$(sed -n '/^pick)/,/^  ;;/p' "$SCRIPT")
 for n in 1 2 3 4 5; do
@@ -706,7 +730,47 @@ check "alt-P (alt+shift+p) does not chain down" "yes" \
   "$(printf '%s\n' "$binds" | grep 'alt-P:' | grep -qv '+down' && echo yes || echo no)"
 check "alt-z does not chain down" "yes" \
   "$(printf '%s\n' "$binds" | grep 'alt-z:' | grep -qv '+down' && echo yes || echo no)"
-check "alt-0 sweeps via clear-many over the all-matched field-1 file placeholder" "yes" \
+# {*f}, not {*1f}: field-1 narrowing (below) does not survive real fzf, so the
+# bind must use the plain all-matched file flag and let clear-many do the cut.
+check "alt-0 sweeps via clear-many over the all-matched file placeholder {*f}" "yes" \
+  "$(printf '%s\n' "$binds" | grep -qF 'alt-0:execute-silent($SELF clear-many {*f})' && echo yes || echo no)"
+check "alt-0's placeholder is not the unexpandable {*1f}" "no" \
   "$(printf '%s\n' "$binds" | grep -qF 'alt-0:execute-silent($SELF clear-many {*1f})' && echo yes || echo no)"
+
+# --- alt-0's placeholder against REAL fzf (Task 6b review fix) ---------------
+# fzf 0.74.3 does not expand {*1f} at all — it passes the literal five
+# characters through unchanged — which a plain read of `fzf --man` did not
+# catch (the man page shows {+1} and {*f} individually but never a field
+# index combined with the file flag). {*1} and {*f} both DO expand. This
+# check runs the real binary, under a pty (fzf refuses to start without one,
+# even in this headless "load, fire once, quit" shape — confirmed: without
+# `script` it exits 2 with "inappropriate ioctl for device"), extracts
+# whatever placeholder the script's alt-0 bind currently uses, and asserts
+# that placeholder actually resolves to the matched pane ids. It is written
+# to fail against {*1f}: substituting that back in makes `cp` receive a
+# literal, nonexistent filename, so the capture file never appears and the
+# check below reads empty instead of the expected ids.
+#
+# `result:...+abort` fires once the initial (synchronous, no keystrokes
+# needed) filter over --query settles, then quits — no interaction, no wait
+# loop. The harness's stubbed `sleep` refuses any real wait, so this uses
+# `timeout` (a syscall-level watchdog, not a sleep) to bound the run instead.
+if command -v fzf >/dev/null 2>&1 && command -v script >/dev/null 2>&1; then
+  setup
+  placeholder=$(printf '%s\n' "$binds" | grep 'alt-0:' | \
+    sed -n 's/.*clear-many \({[^)]*}\)).*/\1/p')
+  rowsfile="$T/fzf-rows.txt"
+  printf 'w1:p1\tP4 alpha\nw1:p2\t-- beta\nw1:p3\tP4 gamma\n' >"$rowsfile"
+  outfile="$T/fzf-out.txt"
+  rm -f "$outfile"
+  fzfcmd="fzf --delimiter='	' --with-nth=2.. --no-sort --query='P4' \
+    --bind 'result:execute-silent(cp $placeholder $outfile)+abort' <'$rowsfile'"
+  timeout 5 script -qec "$fzfcmd" "$T/fzf-typescript.log" >/dev/null 2>&1 || true
+  got=$(cut -f1 "$outfile" 2>/dev/null | sort | tr '\n' ' ' | sed 's/ $//')
+  check "real fzf: alt-0's placeholder ($placeholder) resolves to the matched pane ids" \
+    "w1:p1 w1:p3" "$got"
+else
+  echo "skip  real fzf: alt-0 placeholder check (fzf and/or script not on PATH)"
+fi
 
 exit "$failed"

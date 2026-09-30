@@ -5,8 +5,10 @@
 #   herdr-agent-priority.sh down [pane_id]    lower one step, stops at 1
 #   herdr-agent-priority.sh set <1-5> [pane_id]
 #   herdr-agent-priority.sh clear [pane_id]
-#   herdr-agent-priority.sh clear-many <file>  clear the ranks of the live pane
-#                                               ids listed in <file>, one per line
+#   herdr-agent-priority.sh clear-many <file>  clear the ranks of the live
+#                                               panes named in <file>, one per
+#                                               line, tab-delimited field 1 —
+#                                               a bare id or a full rows() row
 #   herdr-agent-priority.sh snooze [pane_id]   step the snooze: 5m, 30m, 2h, 4h, off
 #   herdr-agent-priority.sh goto              focus the next highest-priority waiting agent
 #   herdr-agent-priority.sh open              open the picker and act on its choice
@@ -828,10 +830,20 @@ clear)
   ;;
 
 clear-many)
-  # Driven by the picker's alt+0: <file> is fzf's {*1f} for the current query,
-  # one pane id per line (empty query -> every listed row). A missing or
-  # empty file is a plain no-op — no agent list call, no lock, no toast — so
-  # an accidental press over an empty filter costs nothing.
+  # Driven by the picker's alt+0: <file> is fzf's {*f} for the current query
+  # — the FULL matched rows, one per line, each pane_id<TAB>display-text (the
+  # display half carries the ANSI colour codes rows() emits, and may itself
+  # contain spaces; only the id is used). {*1f} looks like the right tool
+  # here — field 1, file flag — but fzf 0.74.3 does not expand it at all: it
+  # passes the literal string `{*1f}` through unchanged, so an early version
+  # of this bind silently no-op'd (verified against real fzf under `script`,
+  # not just read off the man page). {*f} does expand, so the field-1 cut
+  # happens here instead. `cut -f1` also does the right thing for a plain
+  # one-id-per-line file (a line with no tab is entirely field 1), which is
+  # what the offline test harness and a hand-written list both use.
+  #
+  # A missing or empty file is a plain no-op — no agent list call, no lock,
+  # no toast — so an accidental press over an empty filter costs nothing.
   file=${1:-}
   [ -n "$file" ] && [ -s "$file" ] || exit 0
   # The one required `herdr agent list` call: anything in the file that is
@@ -839,7 +851,9 @@ clear-many)
   list=$(herdr agent list) || { log "clear-many: agent list failed"; exit 0; }
   live=$(printf '%s\n' "$list" | jq -r '.result.agents[].pane_id')
   panes=''
-  while IFS= read -r p || [ -n "$p" ]; do
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    p=$(printf '%s\n' "$line" | cut -f1)
     [ -n "$p" ] || continue
     if printf '%s\n' "$live" | grep -qxF "$p"; then
       panes="$panes $p"
@@ -981,14 +995,23 @@ pick)
   # exactly what dropping the extra `down` preserves.
   #
   # alt+0 clears every row the current query matches, not just the
-  # highlighted one: {*1f} is fzf's all-matched-items placeholder ("a
+  # highlighted one: {*f} is fzf's all-matched-items placeholder ("a
   # placeholder expression starting with * flag will be replaced to the
   # space-separated list of all matched items individually quoted",
-  # PREVIEW WINDOW section) narrowed to field 1 and written to a temp file
-  # ("a placeholder expression with f flag is replaced to the path of a
-  # temporary file that holds the evaluated list") — the same file-flag idea
-  # the man page shows combined with a leading flag in {+1}/{*f}. An empty
-  # query matches every row, so alt+0 with nothing typed clears everyone.
+  # PREVIEW WINDOW section) with the f flag, which writes that list to a temp
+  # file instead of inlining it ("a placeholder expression with f flag is
+  # replaced to the path of a temporary file that holds the evaluated
+  # list") — {*f}'s own man-page example. An empty query matches every row,
+  # so alt+0 with nothing typed clears everyone.
+  #
+  # NOT {*1f}. Narrowing to field 1 first looks like the obvious move — the
+  # file would then hold bare pane ids — but measured against real fzf
+  # 0.74.3 (under `script`, to get a pty), {*1f} is not expanded at all: fzf
+  # passes the literal five characters `{*1f}` straight through, silently.
+  # {*1} (inline, no file) and {*f} (file, no field narrowing) both do
+  # expand. So {*f} is used as-is — the file holds full matched rows,
+  # pane_id<TAB>display-text — and `clear-many` itself does the field-1 cut
+  # (see its comment).
   command -v fzf >/dev/null || die "pick needs fzf"
   sel=$(rows | fzf \
     --delimiter='\t' --with-nth=2.. --no-sort --cycle --ansi \
@@ -1004,7 +1027,7 @@ pick)
     --bind="alt-p:execute-silent($SELF up {1})+reload($SELF rows)" \
     --bind="alt-P:execute-silent($SELF down {1})+reload($SELF rows)" \
     --bind="alt-z:execute-silent($SELF snooze {1})+reload($SELF rows)" \
-    --bind="alt-0:execute-silent($SELF clear-many {*1f})+reload($SELF rows)" || true)
+    --bind="alt-0:execute-silent($SELF clear-many {*f})+reload($SELF rows)" || true)
   [ -n "$sel" ] || exit 0
   target=$(printf '%s\n' "$sel" | cut -f1)
   [ -n "$target" ] || exit 0
