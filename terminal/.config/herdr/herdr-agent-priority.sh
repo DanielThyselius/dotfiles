@@ -513,6 +513,17 @@ prune() {
       [ "$cur" = "$want" ] || stamp_one "$pane" "$(stored "$pane")" ||
         log "prune: stamp failed: $pane"
     done
+
+  # A label can outlive its snooze: a clear failed, or the snooze expired and
+  # nothing has ticked since. Clear every live label with no active snooze
+  # behind it. Driven by the agent list's tokens, not the store, because
+  # $active has already lost expired lines. Active labels are the ticker's.
+  printf '%s\n' "$alist" |
+    jq -r '.result.agents[] | select((.tokens.snz // "") != "") | .pane_id' |
+    while read -r pane; do
+      [ -n "$pane" ] || continue
+      printf '%s\n' "$active" | cut -f1 | grep -qxF "$pane" || snz_clear "$pane" prune
+    done
 }
 
 # Tell herdr to order the agent panel by the hidden sort token. Ranked first,
@@ -943,6 +954,10 @@ stamp)
   # there too, under the same lock, rather than after it.
   locked prune
   set_view
+  # After the lock, never inside it. Cheap to skip: this hook fires on every
+  # pane.agent_detected, and most of the time nothing is snoozed.
+  snoozed_now=$(snoozes_active) || snoozed_now=''
+  [ -z "$snoozed_now" ] || ensure_ticker
   ;;
 
 view)

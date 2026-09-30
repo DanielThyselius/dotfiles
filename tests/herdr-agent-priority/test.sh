@@ -350,6 +350,36 @@ check "reconcile restamps exactly the mismatched panes" "w1:p1 w1:p3 w1:p4" \
 check "reconcile never touches the pane already at the default" "no" \
   "$(grep -qF 'w1:p2' "$FIXTURE_DIR/metadata.log" && echo yes || echo no)"
 
+# --- stamp and the snooze label (Task 5) -------------------------------------
+setup
+set_snz w1:p2 "zz 3m"
+seed_snooze w1:p1 600 30
+set_snz w1:p1 "zz 10m"
+run stamp
+check "stamp clears a label with no snooze behind it" \
+  "pane report-metadata w1:p2 --source agent-snooze --clear-token snz" \
+  "$(snz_lines w1:p2)"
+check "stamp leaves a label whose snooze is active alone" "" "$(snz_lines w1:p1)"
+check "stamp starts the ticker when something is snoozed" \
+  "args=[-f $HOME/.config/herdr/herdr-agent-priority.sh ticker]" \
+  "$(sed -n 1p "$FIXTURE_DIR/setsid.log" | sed 's/ fds=.*//')"
+check "stamp starts the ticker with fd 9 closed" "no" "$(fd9_in 1)"
+
+setup
+run stamp
+check "stamp starts no ticker when nothing is snoozed" "" "$(cat "$FIXTURE_DIR/setsid.log")"
+
+# A clear that failed is repaired by the next stamp.
+setup
+seed_snooze w1:p1 600 240
+set_snz w1:p1 "zz 10m"
+HERDR_STUB_FAIL_SNOOZE_META=1 sh "$SCRIPT" snooze w1:p1 2>/dev/null || true
+check "precondition: the off press's clear failed" "" "$(snz_lines w1:p1)"
+run stamp
+check "the next stamp issues the clear the off press lost" \
+  "pane report-metadata w1:p1 --source agent-snooze --clear-token snz" \
+  "$(snz_lines w1:p1)"
+
 # --- stamp never prunes on a bad or empty pane list --------------------------
 # A herdr that is down or briefly returns no panes must never read as "every
 # pane is gone": pane.agent_detected fires this hook constantly, so without a
@@ -359,6 +389,7 @@ check "reconcile never touches the pane already at the default" "no" \
 # writing this comment.
 for mode in exit errjson empty; do
   setup
+  set_snz w1:p2 "zz 3m"
   mkdir -p "$XDG_STATE_HOME/herdr"
   printf 'w1:p1\t5\n' >"$(state agent-priority)"
   printf 'w1:p1\t%s\t5\n' $(( $(date +%s) + 600 )) >"$(state agent-snooze)"
