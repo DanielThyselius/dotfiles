@@ -29,7 +29,20 @@ case "$1 ${2:-}" in
 "tab list")
   jq '{result: {tabs: ([.result.agents[].tab_id] | unique
         | map({tab_id: ., label: ("tab-" + .)}))}}' "$F/agents.json" ;;
-"pane report-metadata") printf '%s\n' "$*" >>"$F/metadata.log" ;;
+"pane report-metadata")
+  # Test seam: HERDR_STUB_FAIL_SNOOZE_META=1 makes every write under the
+  # agent-snooze source fail (nonzero, nothing logged), as a server that
+  # rejects the call would. Rank writes (agent-priority) are unaffected.
+  case " $* " in
+  *" --source agent-snooze "*)
+    if [ -n "${HERDR_STUB_FAIL_SNOOZE_META:-}" ]; then
+      echo "stub herdr: forced agent-snooze failure" >&2
+      exit 1
+    fi
+    ;;
+  esac
+  printf '%s\n' "$*" >>"$F/metadata.log"
+  ;;
 "agent focus" | "workspace focus" | "tab focus") : ;;
 *)
   echo "stub herdr: unmodelled: $*" >&2

@@ -38,7 +38,9 @@ setup() {
   FIXTURE_DIR="$T/fx"
   HERDR_CONFIG_PATH="$CONFIG"
   export HOME XDG_STATE_HOME FIXTURE_DIR HERDR_CONFIG_PATH
-  unset AGENT_PRIORITY_CRIT_DELAY HERDR_STUB_FAIL_PANE_LIST 2>/dev/null || true
+  unset AGENT_PRIORITY_CRIT_DELAY HERDR_STUB_FAIL_PANE_LIST \
+    AGENT_PRIORITY_TICK_ONCE AGENT_PRIORITY_TICK_PROBE \
+    HERDR_STUB_FAIL_SNOOZE_META 2>/dev/null || true
   # Strip anything that could point this run at a real herdr session, so a
   # call that slips past the stub fails loudly instead of reaching it.
   unset HERDR_SOCKET_PATH HERDR_BIN_PATH HERDR_PANE_ID HERDR_TAB_ID \
@@ -50,6 +52,7 @@ setup() {
   : >"$FIXTURE_DIR/toasts.log"
   : >"$FIXTURE_DIR/metadata.log"
   : >"$FIXTURE_DIR/calls.log"
+  : >"$FIXTURE_DIR/setsid.log"
 }
 
 # Never abort the runner: a failing script (e.g. "unknown command" before a
@@ -61,6 +64,22 @@ fixture() { # fixture <jq filter>: rewrite the agent list in place
   mv "$FIXTURE_DIR/a.tmp" "$FIXTURE_DIR/agents.json"
 }
 queue_ids() { run list | awk '{ print $3 }' | tr '\n' ' ' | sed 's/ $//'; }
+seed_snooze() { # seed_snooze <pane> <seconds from now, may be negative> <step>
+  mkdir -p "$(dirname "$(state agent-snooze)")"
+  printf '%s\t%s\t%s\n' "$1" $(( $(date +%s) + $2 )) "$3" >>"$(state agent-snooze)"
+}
+set_snz() { # set_snz <pane> <label>: the fixture shows this pane's $snz as set
+  fixture ".result.agents |= map(if .pane_id == \"$1\" then .tokens.snz = \"$2\" else . end)"
+}
+snz_lines() { # snz_lines <pane>: this pane's agent-snooze writes, oldest first
+  awk -v p="$1" '$3 == p && / --source agent-snooze /' "$FIXTURE_DIR/metadata.log"
+}
+# One ticker pass and exit. Never call `run ticker` without the seam: the
+# stub sleep refuses the minute's wait, but the pass count would be wrong.
+ticker_once() { AGENT_PRIORITY_TICK_ONCE=1 sh "$SCRIPT" ticker || true; }
+fd9_in() { # fd9_in <setsid.log line number>: yes if that start inherited fd 9
+  sed -n "${1}p" "$FIXTURE_DIR/setsid.log" | grep -qF ' 9 ' && echo yes || echo no
+}
 
 # --- goto: the "already at the top" hint names the configured keys ----------
 setup
@@ -302,8 +321,39 @@ run snooze w1:p1
 rows_plain=$(run rows | sed 's/\x1b\[[0-9;]*m//g')
 check "snoozed row sorts last in its band" "w1:p4 w1:p3 w1:p1 w1:p2" \
   "$(printf '%s\n' "$rows_plain" | cut -f1 | tr '\n' ' ' | sed 's/ $//')"
-wake=$(awk -F'\t' '$1 == "w1:p1" { print $2 }' "$(state agent-snooze)")
+wake=$(awk -F'\t' '$1 == "w1:p1" { print $2 }' "$(state agent-snooze)" 2>/dev/null || true)
 check "snoozed row shows its wake time" "yes" \
   "$(printf '%s\n' "$rows_plain" | grep '^w1:p1' | grep -qF "zz $(date -d "@$wake" +%H:%M)" && echo yes || echo no)"
+
+# --- harness self-checks (Task 2) ---------------------------------------------
+# These prove the stubs can see what later tests assert on. If the fd probe
+# could not see an inherited fd 9, every "ticker starts with fd 9 closed"
+# check below would pass whatever the script did.
+setup
+( exec 9>"$T/probe.lock"; setsid -f probe-target ticker )
+setsid -f probe-target ticker
+check "stub setsid records its arguments" "args=[-f probe-target ticker]" \
+  "$(sed -n 1p "$FIXTURE_DIR/setsid.log" | sed 's/ fds=.*//')"
+check "stub setsid sees an inherited fd 9" "yes" "$(fd9_in 1)"
+check "stub setsid sees fd 9 absent when it is" "no" "$(fd9_in 2)"
+
+setup
+code=0
+HERDR_STUB_FAIL_SNOOZE_META=1 herdr pane report-metadata w1:p1 \
+  --source agent-snooze --clear-token snz 2>/dev/null || code=$?
+check "stub failure mode fails agent-snooze writes" "1" "$code"
+HERDR_STUB_FAIL_SNOOZE_META=1 herdr pane report-metadata w1:p1 \
+  --source agent-priority --token prisort=3 >/dev/null
+check "stub failure mode leaves agent-priority writes alone" \
+  "pane report-metadata w1:p1 --source agent-priority --token prisort=3" \
+  "$(cat "$FIXTURE_DIR/metadata.log")"
+
+setup
+set_snz w1:p2 "zz 3m"
+check "fixture can show a live \$snz label" "zz 3m" \
+  "$(herdr agent list | jq -r '.result.agents[] | select(.pane_id == "w1:p2") | .tokens.snz')"
+
+code=0; sleep 60 2>/dev/null || code=$?
+check "stub sleep refuses the ticker's minute" "1" "$code"
 
 exit "$failed"
