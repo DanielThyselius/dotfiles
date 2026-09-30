@@ -141,6 +141,13 @@ invoking action's plugin-log entry finishes (`succeeded`) rather than staying
 `running`. The startup hook itself is confirmed at the next natural herdr
 restart (the Part 1 live check), never by forcing one.
 
+**Result (2026-09-30):** ticker. Action probe: `action: stamps=11 steady
+finished=1`, plugin log `succeeded 10ms`. Keybind probe (`type = "shell"`,
+pressed by the user): `keybind: stamps=11 steady finished=1`. Reloads at
+T0+71s and T1+71s; both detached heartbeats ran their full five minutes in
+their own sessions through the reload. The startup-hook path is confirmed at
+the next natural herdr restart.
+
 **Fallback if it cannot:** no ticker. The label shows the wake time instead,
 `zz 14:30`, reported with `--ttl-ms` equal to the time left so herdr removes it
 at the wake; `snooze` writes it, off clears it, `prune` re-reports it for active
