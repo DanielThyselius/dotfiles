@@ -207,6 +207,48 @@ run snooze w1:p2 & run snooze w1:p4 & wait
 check "concurrent snoozes of different panes both survive" "3" \
   "$(grep -c '' "$(state agent-snooze)")"
 
+# --- snooze writes the sidebar label (Task 3) ----------------------------------
+setup
+run snooze w1:p1
+check "a snooze labels the pane under its own source, 5m, TTL clamped to 90s" \
+  "pane report-metadata w1:p1 --source agent-snooze --token snz=zz 5m --ttl-ms 90000" \
+  "$(snz_lines w1:p1)"
+
+setup
+for _ in 1 2 3 4 5; do run snooze w1:p1; done
+check "pressing through to off clears the label last" \
+  "pane report-metadata w1:p1 --source agent-snooze --clear-token snz" \
+  "$(snz_lines w1:p1 | tail -n1)"
+
+setup
+run up w1:p2
+run snooze w1:p2
+check "rank stamps never carry a TTL" "" \
+  "$(awk '/ --source agent-priority / && / --ttl-ms /' "$FIXTURE_DIR/metadata.log")"
+check "the snz token is only ever written under agent-snooze" "" \
+  "$(awk '/snz/ && !/ --source agent-snooze /' "$FIXTURE_DIR/metadata.log")"
+
+setup
+seed_snooze w1:p1 600 240
+code=0; HERDR_STUB_FAIL_SNOOZE_META=1 sh "$SCRIPT" snooze w1:p1 2>/dev/null || code=$?
+check "a failed label clear is not fatal: exit 0" "0" "$code"
+check "a failed label clear still switches the snooze off" "" \
+  "$(awk -F'\t' '$1 == "w1:p1"' "$(state agent-snooze)")"
+check "a failed label clear still toasts" "yes" \
+  "$(tail -n1 "$FIXTURE_DIR/toasts.log" | grep -qF 'Snooze off' && echo yes || echo no)"
+check "a failed label clear is logged" "yes" \
+  "$(grep -qF 'snooze: snz clear failed for w1:p1' "$(state agent-priority.log)" && echo yes || echo no)"
+
+# Ticker branch only — delete these three checks in the fallback branch.
+setup
+run snooze w1:p1
+check "snooze starts the ticker, detached" \
+  "args=[-f $HOME/.config/herdr/herdr-agent-priority.sh ticker]" \
+  "$(sed -n 1p "$FIXTURE_DIR/setsid.log" | sed 's/ fds=.*//')"
+check "snooze starts the ticker with fd 9 closed" "no" "$(fd9_in 1)"
+for _ in 2 3 4 5; do run snooze w1:p1; done
+check "the off press does not start a ticker" "4" "$(grep -c '' "$FIXTURE_DIR/setsid.log")"
+
 # --- queue skips snoozed panes -------------------------------------------------
 setup
 check "baseline queue" "w1:p1 w1:p4 w1:p2" "$(queue_ids)"

@@ -71,6 +71,8 @@ SELECTION="$STATE_DIR/agent-priority.selection"
 LOG="$STATE_DIR/agent-priority.log"
 NOTIFY_ID="$STATE_DIR/agent-priority.notify-id"
 LOCK="$STATE_DIR/agent-priority.lock"
+SNZ_SOURCE=agent-snooze
+TICKER_LOCK="$STATE_DIR/agent-snooze.ticker.lock"
 
 mkdir -p "$STATE_DIR"
 [ -f "$STORE" ] || : >>"$STORE"
@@ -231,6 +233,62 @@ snooze_label() { # snooze_label <minutes>: 5m, 30m, 2h, 4h
   if [ "$1" -ge 60 ]; then echo "$(($1 / 60))h"; else echo "${1}m"; fi
 }
 
+# THE SIDEBAR LABEL. A snoozed row shows its time left as the $snz token,
+# "zz 24m". It is a separate metadata source from the ranks on purpose: the
+# label carries a TTL, and a TTL on the agent-priority source would expire
+# pri and prisort with it. The TTL is the safety net — never longer than 90 s
+# and never past the wake — so a label nobody refreshes disappears instead of
+# showing a wrong time. Every write goes through the store lock, like the rank
+# stamp, and a failed write is logged, never fatal: the store is the truth, the
+# label a projection of it.
+snooze_left() { # snooze_left <seconds>: minutes rounded up — 5m, 59m, 1h, 1h5m, 2h10m, 4h
+  m=$(( ($1 + 59) / 60 ))
+  if [ "$m" -lt 60 ]; then
+    echo "${m}m"
+  elif [ $((m % 60)) -eq 0 ]; then
+    echo "$((m / 60))h"
+  else
+    echo "$((m / 60))h$((m % 60))m"
+  fi
+}
+
+snz_clear() { # snz_clear <pane_id> <caller>
+  herdr pane report-metadata "$1" --source "$SNZ_SOURCE" --clear-token snz >/dev/null ||
+    log "$2: snz clear failed for $1"
+}
+
+# The time left is computed here, immediately before the report, so a label
+# can never be written with a TTL that outlives its wake. A wake already past
+# means the snooze is over: clear instead.
+snz_report() { # snz_report <pane_id> <wake_epoch> <caller>
+  left=$(( $2 - $(date +%s) ))
+  if [ "$left" -le 0 ]; then
+    snz_clear "$1" "$3"
+    return 0
+  fi
+  ttl=$(( left * 1000 ))
+  [ "$ttl" -le 90000 ] || ttl=90000
+  herdr pane report-metadata "$1" --source "$SNZ_SOURCE" \
+    --token "snz=zz $(snooze_left "$left")" --ttl-ms "$ttl" >/dev/null ||
+    log "$3: snz report failed for $1"
+}
+
+# Start the ticker, detached, unless one already runs (it checks that itself
+# and exits at once). Called only AFTER a `locked` section has returned, never
+# inside one: a child started in there inherits fd 9 and holds the store lock
+# for its whole life (see `locked`). fd 9 is closed explicitly anyway.
+#
+# `setsid -f` "Always create[s] a new process" (setsid(1)): it forks, the child
+# starts a new session and becomes the ticker, and setsid itself returns at
+# once — so nothing here is a background job. stdio goes to /dev/null because
+# a plugin command's stdout/stderr are pipes herdr reads until EOF: a ticker
+# holding them would leave the command that started it "running" in herdr's
+# plugin log, and herdr caps those at 32.
+ensure_ticker() {
+  setsid -f "$SELF" ticker 9>&- </dev/null >/dev/null 2>&1 ||
+    log "ensure_ticker: could not start the ticker"
+}
+
 snooze_step() { # snooze_step <pane_id>; run under `locked`; sets $step and $wake
   # The store is read exactly once here, into a file rather than a pipe, so a
   # failing read (a corrupt store, a missing file) aborts loudly under set -e
@@ -256,6 +314,13 @@ snooze_step() { # snooze_step <pane_id>; run under `locked`; sets $step and $wak
     printf '%s\t%s\t%s\n' "$1" "$wake" "$step" >>"$tmp"
   fi
   mv "$tmp" "$SNOOZE"
+  # Inside the lock, like rank_write's stamp: outside it, two quick presses
+  # could store 30m then 2h but label 2h then 30m.
+  if [ -n "$step" ]; then
+    snz_report "$1" "$wake" snooze
+  else
+    snz_clear "$1" snooze
+  fi
   rm -f "$snap"
 }
 
@@ -600,6 +665,9 @@ snooze)
   pane=$(target_pane "${1:-}")
   [ -n "$pane" ] || exit 0
   locked snooze_step "$pane"
+  # After the lock, never inside it. Off needs no ticker: the label is already
+  # cleared, and a running ticker notices the empty store on its next pass.
+  [ -z "$step" ] || ensure_ticker
   title=$(pane_title "$pane")
   [ -n "$title" ] || title="$pane"
   if [ -n "$step" ]; then
