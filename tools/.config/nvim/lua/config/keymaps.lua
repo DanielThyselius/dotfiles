@@ -30,3 +30,8 @@ vim.keymap.set("n", "<C-S-Down>", function() push_border("down") end, { desc = "
 -- Ctrl+Tab / Ctrl+Shift+Tab = H/L (LazyVim's previous/next buffer in the bar)
 vim.keymap.set("n", "<C-Tab>", "L", { remap = true, desc = "Next Buffer" })
 vim.keymap.set("n", "<C-S-Tab>", "H", { remap = true, desc = "Prev Buffer" })
+
+-- Ctrl+Backspace arrives as Alt+Backspace (foot sends ESC DEL). Unmapped, Nvim
+-- reads that as <Esc> + <BS> and leaves insert mode; make it delete a word.
+vim.keymap.set({ "i", "c" }, "<M-BS>", "<C-w>", { desc = "Delete Word Before Cursor" })
+vim.keymap.set({ "i", "c" }, "<C-BS>", "<C-w>", { desc = "Delete Word Before Cursor" })
