@@ -1,0 +1,31 @@
+id = "chrome-profile-links"
+name = "Open web links in the space's Chrome profile"
+version = "1.0.0"
+description = "Ctrl+click on an http(s) link opens it in the Chrome profile mapped to the current space"
+min_herdr_version = "0.8.0"
+platforms = ["linux"]
+
+# herdr's built-in ctrl+click hands http(s) URLs to xdg-open, which knows
+# nothing about which client a space belongs to. This handler routes them
+# through herdr-chrome-profile.sh instead, where the space -> profile map
+# lives. Unmapped spaces get the picker popup below.
+
+[[actions]]
+id = "open"
+title = "Open link in the space's Chrome profile"
+contexts = ["pane"]
+command = ["sh", "-c", "exec \"$HOME/.config/herdr/herdr-chrome-profile.sh\" route \"$HERDR_PLUGIN_CLICKED_URL\""]
+
+[[link_handlers]]
+id = "web-link"
+title = "Open link in the space's Chrome profile"
+pattern = "^https?://"
+action = "open"
+
+[[panes]]
+id = "picker"
+title = "Chrome profile"
+placement = "popup"
+width = "60%"
+height = "40%"
+command = ["sh", "-c", "$HOME/.config/herdr/herdr-chrome-profile.sh pick"]
