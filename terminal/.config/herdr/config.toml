@@ -307,34 +307,35 @@ description = "Go to agent needing attention"
 # is ESC P, which is also how a DCS control string starts, and herdr's input
 # parser waits for a terminator that never arrives. It works here because foot
 # and herdr negotiate the kitty keyboard protocol.
+# The keys are the plugin's actions; see its README.
 [[keys.command]]
 key = "prefix+p"
-type = "shell"
-command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh open"'
+type = "plugin_action"
+command = "agent-priority.open"
 description = "Ranked agent picker"
 
 [[keys.command]]
 key = "alt+p"
-type = "shell"
-command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh up"'
+type = "plugin_action"
+command = "agent-priority.up"
 description = "Raise agent priority"
 
 [[keys.command]]
 key = "alt+shift+p"
-type = "shell"
-command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh down"'
+type = "plugin_action"
+command = "agent-priority.down"
 description = "Lower agent priority"
 
 [[keys.command]]
 key = "alt+g"
-type = "shell"
-command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh goto"'
+type = "plugin_action"
+command = "agent-priority.goto"
 description = "Go to next highest-priority agent"
 
 [[keys.command]]
 key = "alt+z"
-type = "shell"
-command = 'sh -c "$HOME/.config/herdr/herdr-agent-priority.sh snooze"'
+type = "plugin_action"
+command = "agent-priority.snooze"
 description = "Snooze agent (5m/30m/2h/4h/off)"
 
 
@@ -483,7 +484,7 @@ agent_panel_sort = "priority"
 # Neither $idx nor $pri is a herdr built-in — both are custom metadata tokens.
 # $idx is stamped by herdr-number-sidebar.sh and holds the digit that focus_agent
 # (prefix+1..9) responds to, so the panel reads as its own keymap. $pri is
-# stamped by herdr-agent-priority.sh and holds the 1-5 rank set with alt+p; it is
+# stamped by the agent-priority plugin (~/Source/herdr-agent-priority) and holds the 1-5 rank set with alt+p; it is
 # absent on most rows, and a token with no value renders as nothing rather than
 # as its own name, so unranked agents stay clean.
 # $snz is the snooze label, "zz 24m", stamped by the same script under its own
