@@ -255,7 +255,8 @@ description = "Go to agent needing attention"
 # alt+p raises, alt+shift+p lowers, each one step, clamped at 5 and 1. Landing
 # back on 3 unsets the rank instead of stamping "P3": unset already sorts as 3,
 # and not labelling thirty unranked rows with a number that says nothing keeps
-# the panel readable.
+# the panel readable. ctrl+alt+p clears straight back to unranked, for a task
+# that is done, without having to know which rank it is on.
 #
 # alt+p raises the focused session, alt+shift+p lowers it, and prefix+p opens
 # the ranked list as a popup. Nudging one pane is the thing done by reflex while
@@ -325,6 +326,12 @@ key = "alt+shift+p"
 type = "plugin_action"
 command = "agent-priority.down"
 description = "Lower agent priority"
+
+[[keys.command]]
+key = "ctrl+alt+p"
+type = "plugin_action"
+command = "agent-priority.clear"
+description = "Clear agent priority"
 
 [[keys.command]]
 key = "alt+g"
