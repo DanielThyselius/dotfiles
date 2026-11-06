@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Dispatcher for clicked/picked file paths (OSC 8 links, file managers, tmux-thumbs).
 #   *.md, *.markdown, *.mkd -> Typora
+#   directories              -> Nautilus
+#   binary files (PDF etc.)  -> xdg-open (their own mime default, e.g. Evince)
 #   everything else          -> nvim in a new default-terminal window (xdg-terminal-exec)
 # Accepts plain paths, file:// URLs, and grep/compiler-style "path:LINE[:COL]".
 #
@@ -33,6 +35,16 @@ fi
 case ${f,,} in
     *.md|*.markdown|*.mkd) exec typora "$f" ;;
 esac
+
+if [ -d "$f" ]; then
+    exec setsid -f nautilus --new-window "$f" >/dev/null 2>&1
+fi
+
+# Binary files (PDFs, images, archives...) go to their own mime default.
+# Only text mimes are bound to open-editor.desktop, so this cannot loop back.
+if [ -f "$f" ] && [ -s "$f" ] && [ "$(file -bL --mime-encoding "$f")" = binary ]; then
+    exec xdg-open "$f"
+fi
 
 if [ -n "$line" ]; then
     exec xdg-terminal-exec nvim "+$line" "$f"
