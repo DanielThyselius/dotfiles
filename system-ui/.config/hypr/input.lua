@@ -3,6 +3,8 @@
 hl.config({
   input = {
     kb_layout = "se",
+    -- Caps Lock is the compose key, as before Omarchy 4.5 moved it to Shift + Caps Lock.
+    kb_options = "compose:caps",
     repeat_delay = 600,
 
     -- Focus follows mouse hover. Paired with touchpad disable_while_typing below
