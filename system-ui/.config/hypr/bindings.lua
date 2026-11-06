@@ -94,3 +94,53 @@ hl.unbind("ALT + TAB")
 hl.unbind("ALT + SHIFT + TAB")
 hl.unbind("CTRL + ALT + TAB")
 hl.unbind("CTRL + ALT + SHIFT + TAB")
+
+-- === foot: show a link in Nautilus ===
+-- ALT+E in foot is ALT+O's link hints, but the picked file link opens in
+-- Nautilus (dir as itself, file selected in its folder). foot has a single
+-- [url] launch command, so this drops a timestamp flag that the launcher
+-- (herdr-chrome-profile.sh route) consumes within 30s. Outside foot, ALT+E
+-- passes through to the app. Key sends use the down/up split from Omarchy's
+-- clipboard.lua (send_shortcut can leave synthetic keys stuck).
+local function send_key_once(mods, key)
+  hl.dispatch(hl.dsp.send_key_state({ mods = mods, key = key, state = "down" }))
+  hl.timer(function()
+    hl.dispatch(hl.dsp.send_key_state({ mods = mods, key = key, state = "up" }))
+  end, { timeout = 50, type = "oneshot" })
+end
+
+o.bind("ALT + E", "Show link in Nautilus (foot)", function()
+  local window = hl.get_active_window()
+  if not (window and window.class == "foot") then
+    send_key_once("ALT", "E")
+    return
+  end
+  local flag = io.open((os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/foot-url-reveal", "w")
+  if flag then
+    flag:write(tostring(os.time()))
+    flag:close()
+  end
+  send_key_once("ALT", "O")
+end)
+
+-- CTRL+ALT+O in foot is ALT+O that always asks which Chrome profile, even in a
+-- herdr space that has one. Same flag trick: the launcher consumes it within 30s.
+o.bind("CTRL + ALT + O", "Open link in a chosen Chrome profile (foot)", function()
+  local window = hl.get_active_window()
+  if not (window and window.class == "foot") then
+    send_key_once("CTRL + ALT", "O")
+    return
+  end
+  local flag = io.open((os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/foot-url-pick", "w")
+  if flag then
+    flag:write(tostring(os.time()))
+    flag:close()
+  end
+  send_key_once("ALT", "O")
+end)
+
+-- Dictation keys from before Alt + Space and Right Alt became the defaults.
+-- Remove these lines to give the keys back to applications.
+if o.dictation_installed and o.dictation_installed() then
+  o.bind_hold("F9", "Start dictation (push-to-talk)", "omarchy-dictation start", "Stop dictation (push-to-talk)", "omarchy-dictation stop")
+end

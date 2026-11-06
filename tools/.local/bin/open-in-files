@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Show a path in Nautilus: a directory opens as itself, anything else opens its
+# parent folder with the file selected. Accepts plain paths, file:// URLs and
+# "path:LINE[:COL]". Caller: foot's URL mode on alt+e (see herdr-chrome-profile.sh).
+set -euo pipefail
+
+f=${1:-}
+[ -n "$f" ] || exit 1
+
+if [ "${f#file://}" != "$f" ]; then
+    f=${f#file://}
+    case $f in *%*) f=$(printf '%b' "${f//%/\\x}") ;; esac
+fi
+
+# Drop a trailing :LINE[:COL] only if it makes the path resolve.
+if [ ! -e "$f" ] && [ -e "${f%%:*}" ]; then
+    f=${f%%:*}
+fi
+
+if [ -d "$f" ]; then
+    exec setsid -f nautilus --new-window "$f" >/dev/null 2>&1
+elif [ -e "$f" ]; then
+    exec setsid -f nautilus --new-window --select "$f" >/dev/null 2>&1
+else
+    # Gone or never existed: show the nearest folder that does.
+    d=$(dirname -- "$f")
+    while [ ! -d "$d" ]; do d=$(dirname -- "$d"); done
+    exec setsid -f nautilus --new-window "$d" >/dev/null 2>&1
+fi
