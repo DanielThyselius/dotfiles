@@ -16,18 +16,20 @@ hl.monitor({ output = "DP-2", mode = "preferred", position = "0x0", scale = 1.5 
 -- switching setups, this position needs to change too.
 hl.monitor({ output = "eDP-1", mode = "2560x1600@300", position = "0x1440", scale = 1.25 })
 
--- Workspace pinning (all persistent so they're always present):
---   1-5  -> laptop (eDP-1)
---   6-10 -> home external (HDMI-A-1)
--- Only one rule per workspace id; in non-home setups (e.g. office DP) 6-10 won't
--- follow an external automatically.
-hl.workspace_rule({ workspace = "1", monitor = "eDP-1", persistent = true, default = true })
-hl.workspace_rule({ workspace = "2", monitor = "eDP-1", persistent = true })
-hl.workspace_rule({ workspace = "3", monitor = "eDP-1", persistent = true })
-hl.workspace_rule({ workspace = "4", monitor = "eDP-1", persistent = true })
-hl.workspace_rule({ workspace = "5", monitor = "eDP-1", persistent = true })
-hl.workspace_rule({ workspace = "6", monitor = "HDMI-A-1", persistent = true, default = true })
-hl.workspace_rule({ workspace = "7", monitor = "HDMI-A-1", persistent = true })
-hl.workspace_rule({ workspace = "8", monitor = "HDMI-A-1", persistent = true })
-hl.workspace_rule({ workspace = "9", monitor = "HDMI-A-1", persistent = true })
-hl.workspace_rule({ workspace = "10", monitor = "HDMI-A-1", persistent = true })
+-- Workspace pinning with global numbering (see global-workspaces.lua), all
+-- persistent so they're always present:
+--   1-5  -> home external (HDMI-A-1)
+--   6-10 -> laptop (eDP-1)
+-- Only one rule per workspace id; in non-home setups (e.g. office DP) 1-5 won't
+-- follow an external automatically. Hyprland moves an unplugged screen's
+-- workspaces to the laptop and returns them on replug.
+hl.workspace_rule({ workspace = "1", monitor = "HDMI-A-1", persistent = true, default = true })
+hl.workspace_rule({ workspace = "2", monitor = "HDMI-A-1", persistent = true })
+hl.workspace_rule({ workspace = "3", monitor = "HDMI-A-1", persistent = true })
+hl.workspace_rule({ workspace = "4", monitor = "HDMI-A-1", persistent = true })
+hl.workspace_rule({ workspace = "5", monitor = "HDMI-A-1", persistent = true })
+hl.workspace_rule({ workspace = "6", monitor = "eDP-1", persistent = true, default = true })
+hl.workspace_rule({ workspace = "7", monitor = "eDP-1", persistent = true })
+hl.workspace_rule({ workspace = "8", monitor = "eDP-1", persistent = true })
+hl.workspace_rule({ workspace = "9", monitor = "eDP-1", persistent = true })
+hl.workspace_rule({ workspace = "10", monitor = "eDP-1", persistent = true })
