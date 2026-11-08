@@ -5,7 +5,7 @@
 -- === Apps ===
 o.bind("SUPER + E", "File manager", "uwsm-app -- nautilus --new-window")
 o.bind("SUPER + B", "Bitwarden", "~/.config/hypr/scripts/launch-or-raise.sh bitwarden 'uwsm-app -- bitwarden-desktop'")
-o.bind("SUPER + M", "Brain.fm", "~/.config/hypr/scripts/launch-or-raise.sh dcllmfmjlkpljanfegjgohmlnfipachj 'uwsm-app -- chromium --profile-directory=Default --app-id=dcllmfmjlkpljanfegjgohmlnfipachj'")
+o.bind("SUPER + CTRL + M", "Brain.fm", "~/.config/hypr/scripts/launch-or-raise.sh dcllmfmjlkpljanfegjgohmlnfipachj 'uwsm-app -- chromium --profile-directory=Default --app-id=dcllmfmjlkpljanfegjgohmlnfipachj'")
 
 -- Spotify via focus-or-launch (was: default SUPER+SHIFT+M).
 hl.unbind("SUPER + SHIFT + M")
@@ -47,6 +47,7 @@ o.bind("SUPER + CTRL + TAB", "Next window in group", hl.dsp.group.next())
 o.bind("SUPER + CTRL + SHIFT + TAB", "Previous window in group", hl.dsp.group.prev())
 
 -- Former workspace on SUPER + Q.
+hl.unbind("SUPER + Q") -- default since 4.5: close window
 o.bind("SUPER + Q", "Former workspace", hl.dsp.focus({ workspace = "previous" }))
 
 -- Move window out of group on SUPER + SHIFT + G (default: Signal).
@@ -83,6 +84,7 @@ o.bind("SUPER + CTRL + L", "Toggle idle lock", 'if [ "$(omarchy-toggle-idle)" = 
 
 -- === Misc ===
 o.bind("SUPER + D", "Toggle DND", "omarchy-toggle-notification-silencing")
+hl.unbind("SUPER + SHIFT + T") -- default: btop
 o.bind("SUPER + SHIFT + T", "Toggle touchpad", "omarchy-toggle-touchpad")
 
 -- Dictation on SUPER + Z (default: SUPER + CTRL + X).
