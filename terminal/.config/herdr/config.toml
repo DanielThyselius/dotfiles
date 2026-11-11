@@ -252,11 +252,13 @@ description = "Go to agent needing attention"
 #   alt+g        agent throughput. Blocked first regardless of rank, because a
 #                blocked agent is seconds of yours and minutes of its own.
 #
-# alt+p raises, alt+shift+p lowers, each one step, clamped at 5 and 1. Landing
-# back on 3 unsets the rank instead of stamping "P3": unset already sorts as 3,
-# and not labelling thirty unranked rows with a number that says nothing keeps
-# the panel readable. ctrl+alt+p clears straight back to unranked, for a task
-# that is done, without having to know which rank it is on.
+# The scale is 0-5 and every agent starts on 1, unranked and unlabelled, so
+# 2-5 are four steps of "more important than the rest". 0 is paused: sorts
+# last, alt+g never lands on it. alt+p raises, alt+shift+p lowers, each one
+# step, clamped at 5 and 0. ctrl+alt+p puts the agent one rank above every
+# other ("this is the main task now"; at 5 it joins the band rather than
+# lowering anyone). ctrl+alt+shift+p (meh+p) clears straight back to
+# unranked, for a task that is done, without having to know its rank.
 #
 # alt+p raises the focused session, alt+shift+p lowers it, and prefix+p opens
 # the ranked list as a popup. Nudging one pane is the thing done by reflex while
@@ -264,17 +266,18 @@ description = "Go to agent needing attention"
 # it sits on the prefix layer.
 #
 # Inside the picker the same keys act on the HIGHLIGHTED row: alt+p, alt+shift+p
-# and alt+z mean one thing everywhere. alt+1-5 set a rank outright, but only in
-# the picker — outside it they are switch_tab. Typing always filters, and the
+# and alt+z mean one thing everywhere. alt+0-5 set a rank outright (alt+0
+# pauses, alt+1 unranks), but only in the picker — outside it they are
+# switch_tab. Typing always filters, and the
 # query survives each action, so several rows can be re-ranked in one go.
 #
-# alt+1-5 also move the cursor down a row after ranking (set-and-advance), so
+# alt+0-5 also move the cursor down a row after ranking (set-and-advance), so
 # sweeping down a list — alt+1, alt+1, alt+3, alt+2 ... — lands each press on
 # the row that was visually next, without navigating back to it first. alt+p,
 # alt+shift+p and alt+z do not advance: repeated presses must keep hitting the
 # same row.
 #
-# alt+0 clears the ranks of every row the current query matches, not only the
+# alt+c clears the ranks of every row the current query matches, not only the
 # highlighted one — an empty query means every listed agent. It is the bulk
 # undo for a sweep gone wrong, or for starting a fresh triage pass.
 #
@@ -329,6 +332,12 @@ description = "Lower agent priority"
 
 [[keys.command]]
 key = "ctrl+alt+p"
+type = "plugin_action"
+command = "agent-priority.top"
+description = "Rank above every other agent"
+
+[[keys.command]]
+key = "ctrl+alt+shift+p"
 type = "plugin_action"
 command = "agent-priority.clear"
 description = "Clear agent priority"
