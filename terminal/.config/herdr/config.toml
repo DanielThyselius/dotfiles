@@ -239,7 +239,8 @@ command = 'sh -c "$HOME/.config/herdr/herdr-goto-attention.sh"'
 description = "Go to agent needing attention"
 
 
-# Priority: alt+p ranks the focused session, alt+shift+g walks the ranking.
+# Priority: alt+p ranks the focused session, alt+g walks the ranking
+# (alt+shift+g walks the same top band backwards).
 #
 # These two keys split a job alt+g alone was doing badly. With 30-odd agents the
 # sidebar says *that* things want you, never *which* first, so the day goes on
@@ -248,8 +249,8 @@ description = "Go to agent needing attention"
 # cue to close it, not to do it.
 #
 # They also ration two different scarce things, which is why they stayed apart:
-#   alt+shift+g  your attention. Strict priority order, worked top down.
-#   alt+g        agent throughput. Blocked first regardless of rank, because a
+#   alt+g        your attention. Strict priority order, worked top down.
+#   prefix+a     agent throughput. Blocked first regardless of rank, because a
 #                blocked agent is seconds of yours and minutes of its own.
 #
 # The scale is 0-5 and every agent starts on 1, unranked and unlabelled, so
@@ -347,6 +348,12 @@ key = "alt+g"
 type = "plugin_action"
 command = "agent-priority.goto"
 description = "Go to next highest-priority agent"
+
+[[keys.command]]
+key = "alt+shift+g"
+type = "plugin_action"
+command = "agent-priority.goto-prev"
+description = "Go to previous highest-priority agent"
 
 [[keys.command]]
 key = "alt+z"
